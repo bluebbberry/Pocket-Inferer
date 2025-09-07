@@ -312,7 +312,7 @@ class ModernACECalculator:
         header_frame = tk.Frame(input_frame, bg=self.colors['card'])
         header_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
 
-        ttk.Label(header_frame, text="ACE Statements", style='Subtitle.TLabel').pack(side=tk.LEFT)
+        ttk.Label(header_frame, text="Statements", style='Subtitle.TLabel').pack(side=tk.LEFT)
 
         # File operations
         file_frame = tk.Frame(header_frame, bg=self.colors['card'])
@@ -497,7 +497,15 @@ What does John like?"""
 
             # Prepare results
             results = []
-            results.append("=== EXECUTION RESULTS ===\n")
+
+            # Answer queries
+            if queries:
+                for query in queries:
+                    answer = self.inference_engine.query(query.content)
+                    results.append(f"Q: {query.content}")
+                    results.append(f"A: {answer}")
+                    results.append("")
+
             results.append(f"Processed {facts_count} facts and {rules_count} rules\n")
 
             # Show all current facts
@@ -507,15 +515,6 @@ What does John like?"""
                 for fact in all_facts:
                     results.append(f"  • {fact}")
                 results.append("")
-
-            # Answer queries
-            if queries:
-                results.append("Query results:")
-                for query in queries:
-                    answer = self.inference_engine.query(query.content)
-                    results.append(f"  Q: {query.content}")
-                    results.append(f"  A: {answer}")
-                    results.append("")
 
             # Display results
             self.results_display.config(state=tk.NORMAL)
