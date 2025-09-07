@@ -22,13 +22,6 @@ pip install janus_swi
 main.py
 ```
 
-### USAGE:
-
-- The Calculator Mode allows quick testing of ACE statements
-- The Programming Mode provides a full development environment
-- Use proper ACE syntax like "John is a person.", "X is happy if X likes chocolate."
-- Queries should end with "?" like "Is John happy?"
-
 ### Demo
 
 Here a short demo video:
