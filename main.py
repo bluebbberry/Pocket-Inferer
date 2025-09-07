@@ -32,6 +32,8 @@ from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+from ace_prolog_parser import ACEToPrologParser
+
 try:
     import janus_swi as janus
 
@@ -102,6 +104,7 @@ class SimplePrologEngine:
         self.prolog_available = PROLOG_AVAILABLE
         self.facts = []
         self.rules = []
+        self.parser = ACEToPrologParser()
 
         if self.prolog_available:
             try:
@@ -136,86 +139,6 @@ class SimplePrologEngine:
             except Exception as e:
                 print(f"Error clearing Prolog knowledge: {e}")
 
-    def ace_to_prolog_fact(self, ace_fact: str) -> Optional[str]:
-        """Convert ACE fact to Prolog format"""
-        ace_fact = ace_fact.strip().rstrip('.')
-
-        # Handle "X is a Y" pattern
-        if re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is a ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is a ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE)
-            entity, category = match.groups()
-            return f"{category.lower()}({entity.lower()})"
-
-        # Handle "X is Y" pattern
-        elif re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE)
-            entity, property = match.groups()
-            return f"{property.lower()}({entity.lower()})"
-
-        # Handle "X likes Y" pattern
-        elif re.match(r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$', ace_fact, re.IGNORECASE)
-            entity, object = match.groups()
-            return f"likes({entity.lower()}, {object.lower()})"
-
-        # Handle "X has Y Z" pattern
-        elif re.match(r'^([A-Za-z][a-zA-Z0-9_]*) has ([a-zA-Z][a-zA-Z0-9_-]*) ([a-zA-Z0-9_-]+)$', ace_fact,
-                      re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) has ([a-zA-Z][a-zA-Z0-9_-]*) ([a-zA-Z0-9_-]+)$', ace_fact,
-                             re.IGNORECASE)
-            entity, property, value = match.groups()
-            return f"has_property({entity.lower()}, {property.lower().replace('-', '_')}, {value.lower()})"
-
-        return None
-
-    def ace_to_prolog_rule(self, ace_rule: str) -> Optional[str]:
-        """Convert ACE rule to Prolog format"""
-        ace_rule = ace_rule.strip().rstrip('.')
-
-        # Handle "X is Y if X Z W" pattern
-        if ' if ' in ace_rule.lower():
-            conclusion_part, condition_part = ace_rule.split(' if ', 1)
-            conclusion_part = conclusion_part.strip()
-            condition_part = condition_part.strip()
-
-            # Convert conclusion
-            conclusion_prolog = self._convert_ace_expression_to_prolog(conclusion_part)
-            condition_prolog = self._convert_ace_expression_to_prolog(condition_part)
-
-            if conclusion_prolog and condition_prolog:
-                return f"{conclusion_prolog} :- {condition_prolog}"
-
-        return None
-
-    def _convert_ace_expression_to_prolog(self, expression: str) -> Optional[str]:
-        """Convert an ACE expression to Prolog predicate"""
-        expression = expression.strip()
-
-        # Handle "X is Y" pattern
-        if re.match(r'^([A-Za-z]) is ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z]) is ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE)
-            var, property = match.groups()
-            return f"{property.lower()}({var.upper()})"
-
-        # Handle "X likes Y" pattern
-        elif re.match(r'^([A-Za-z]) likes ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z]) likes ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE)
-            var, object = match.groups()
-            return f"likes({var.upper()}, {object.lower()})"
-
-        # Handle specific entity patterns
-        elif re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE)
-            entity, property = match.groups()
-            return f"{property.lower()}({entity.lower()})"
-
-        elif re.match(r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE):
-            match = re.match(r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$', expression, re.IGNORECASE)
-            entity, object = match.groups()
-            return f"likes({entity.lower()}, {object.lower()})"
-
-        return None
-
     def add_fact(self, ace_fact: str):
         """Add a fact to the Prolog knowledge base"""
         self.facts.append(ace_fact)
@@ -223,7 +146,7 @@ class SimplePrologEngine:
         if not self.prolog_available:
             return
 
-        prolog_fact = self.ace_to_prolog_fact(ace_fact)
+        prolog_fact = self.parser.ace_to_prolog_fact(ace_fact)
         if prolog_fact:
             try:
                 janus.query_once(f"assertz({prolog_fact})")
@@ -238,7 +161,7 @@ class SimplePrologEngine:
         if not self.prolog_available:
             return
 
-        prolog_rule = self.ace_to_prolog_rule(ace_rule)
+        prolog_rule = self.parser.ace_to_prolog_rule(ace_rule)
         if prolog_rule:
             try:
                 janus.query_once(f"assertz(({prolog_rule}))")
@@ -256,7 +179,7 @@ class SimplePrologEngine:
         # Handle "Is X Y?" queries
         if ace_query.lower().startswith('is '):
             query_content = ace_query[3:].strip()
-            prolog_query = self._convert_ace_expression_to_prolog(query_content)
+            prolog_query = self.parser._convert_ace_expression_to_prolog(query_content)
 
             if prolog_query:
                 try:
