@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACE Logical Inference Calculator - Modern Calculator-Style UI
+ACE Logical Inference Calculator - Fixed Version
 A redesigned desktop application with calculator-like interface for logical reasoning
 Combines free-form text input with tagged template insertion
 """
@@ -13,9 +13,6 @@ import re
 from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
-
-# Import the original parser and engine components
-from ace_prolog_parser import ACEToPrologParser
 
 try:
     import janus_swi as janus
@@ -33,6 +30,115 @@ class ACEStatement:
 
     def __str__(self):
         return self.content
+
+
+class ACEToPrologParser:
+    """Enhanced ACE to Prolog parser with better rule handling"""
+
+    def __init__(self):
+        self.entity_map = {}
+        self.next_entity_id = 1
+
+    def normalize_entity(self, entity: str) -> str:
+        """Normalize entity names for Prolog"""
+        entity = entity.strip().lower()
+        # Replace spaces and hyphens with underscores
+        entity = re.sub(r'[\s\-]+', '_', entity)
+        # Ensure it starts with lowercase letter
+        if entity and entity[0].isupper():
+            entity = entity[0].lower() + entity[1:]
+        return entity
+
+    def ace_to_prolog_fact(self, ace_fact: str) -> str | None:
+        """Convert ACE fact to Prolog fact"""
+        ace_fact = ace_fact.strip().rstrip('.')
+
+        # Pattern: X is a person
+        if re.match(r'^(.+) is a ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact):
+            match = re.match(r'^(.+) is a ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            category = self.normalize_entity(match.group(2))
+            return f"{category}({entity})"
+
+        # Pattern: X is Y (property)
+        elif re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact):
+            match = re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            property_name = self.normalize_entity(match.group(2))
+            return f"{property_name}({entity})"
+
+        # Pattern: X likes Y
+        elif re.match(r'^(.+) likes (.+)', ace_fact):
+            match = re.match(r'^(.+) likes (.+)', ace_fact)
+            entity1 = self.normalize_entity(match.group(1))
+            entity2 = self.normalize_entity(match.group(2))
+            return f"likes({entity1}, {entity2})"
+
+        # Pattern: X has Y Z
+        elif re.match(r'^(.+) has (.+) (.+)', ace_fact):
+            match = re.match(r'^(.+) has (.+) (.+)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            property_name = self.normalize_entity(match.group(2))
+            value = self.normalize_entity(match.group(3))
+            return f"has_property({entity}, {property_name}, {value})"
+
+        return None
+
+    def ace_to_prolog_rule(self, ace_rule: str) -> str | None:
+        """Convert ACE rule to Prolog rule"""
+        ace_rule = ace_rule.strip().rstrip('.')
+
+        # Pattern: X is Y if Z
+        if ' if ' in ace_rule.lower():
+            parts = re.split(r'\s+if\s+', ace_rule, flags=re.IGNORECASE)
+            if len(parts) == 2:
+                conclusion = parts[0].strip()
+                condition = parts[1].strip()
+
+                # Parse conclusion
+                if re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', conclusion):
+                    match = re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', conclusion)
+                    var_name = match.group(1).upper()  # Use uppercase for variables
+                    property_name = self.normalize_entity(match.group(2))
+                    conclusion_prolog = f"{property_name}({var_name})"
+                else:
+                    return None
+
+                # Parse condition
+                condition_prolog = self._parse_condition(condition, var_name)
+                if condition_prolog:
+                    return f"{conclusion_prolog} :- {condition_prolog}"
+
+        return None
+
+    def _parse_condition(self, condition: str, var_name: str) -> str | None:
+        """Parse condition part of a rule"""
+        # Pattern: X likes Y
+        if re.match(r'^(.+) likes (.+)', condition):
+            match = re.match(r'^(.+) likes (.+)', condition)
+            subject = match.group(1).strip()
+            object_name = self.normalize_entity(match.group(2))
+
+            # Replace subject with variable if it matches
+            if subject.upper() == var_name:
+                return f"likes({var_name}, {object_name})"
+            else:
+                subject_norm = self.normalize_entity(subject)
+                return f"likes({subject_norm}, {object_name})"
+
+        # Pattern: X is Y
+        elif re.match(r'^(.+) is (.+)', condition):
+            match = re.match(r'^(.+) is (.+)', condition)
+            subject = match.group(1).strip()
+            property_name = self.normalize_entity(match.group(2))
+
+            if subject.upper() == var_name:
+                return f"{property_name}({var_name})"
+            else:
+                subject_norm = self.normalize_entity(subject)
+                return f"{property_name}({subject_norm})"
+
+        return None
 
 
 class ACEParser:
@@ -79,7 +185,7 @@ class ACEParser:
 
 
 class SimplePrologEngine:
-    """Simplified Prolog engine using only janus_swi query methods"""
+    """Improved Prolog engine with better error handling"""
 
     def __init__(self):
         self.prolog_available = PROLOG_AVAILABLE
@@ -89,7 +195,8 @@ class SimplePrologEngine:
 
         if self.prolog_available:
             try:
-                test_result = list(janus.query("true"))
+                # Test Prolog availability
+                list(janus.query("true"))
                 print("Prolog engine initialized successfully")
             except Exception as e:
                 print(f"Error initializing Prolog: {e}")
@@ -102,12 +209,14 @@ class SimplePrologEngine:
 
         if self.prolog_available:
             try:
+                # Clear all dynamic predicates
                 predicates_to_clear = [
-                    "person(_)", "likes(_, _)", "happy(_)", "has_property(_, _, _)"
+                    "person(_)", "likes(_, _)", "happy(_)", "has_property(_, _, _)",
+                    "sad(_)", "tall(_)", "smart(_)", "young(_)", "old(_)"
                 ]
                 for pred in predicates_to_clear:
                     try:
-                        janus.query_once(f"retractall({pred})")
+                        list(janus.query(f"retractall({pred})"))
                     except:
                         pass
             except Exception as e:
@@ -122,7 +231,9 @@ class SimplePrologEngine:
         prolog_fact = self.parser.ace_to_prolog_fact(ace_fact)
         if prolog_fact:
             try:
-                janus.query_once(f"assertz({prolog_fact})")
+                # Use query instead of query_once for better error handling
+                list(janus.query(f"assertz({prolog_fact})"))
+                print(f"Added fact: {prolog_fact}")
             except Exception as e:
                 print(f"Error adding fact {prolog_fact}: {e}")
 
@@ -135,7 +246,9 @@ class SimplePrologEngine:
         prolog_rule = self.parser.ace_to_prolog_rule(ace_rule)
         if prolog_rule:
             try:
-                janus.query_once(f"assertz(({prolog_rule}))")
+                # Use query and proper rule syntax
+                list(janus.query(f"assertz(({prolog_rule}))"))
+                print(f"Added rule: {prolog_rule}")
             except Exception as e:
                 print(f"Error adding rule {prolog_rule}: {e}")
 
@@ -146,40 +259,53 @@ class SimplePrologEngine:
 
         ace_query = ace_query.strip().rstrip('?')
 
-        if ace_query.lower().startswith('is '):
-            query_content = ace_query[3:].strip()
-            prolog_query = self.parser._convert_ace_expression_to_prolog(query_content)
-            if prolog_query:
-                try:
-                    results = list(janus.query(prolog_query))
+        try:
+            # Is X Y? queries
+            if ace_query.lower().startswith('is '):
+                query_content = ace_query[3:].strip()
+
+                # Pattern: is X happy
+                if re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content):
+                    match = re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content)
+                    entity = self.parser.normalize_entity(match.group(1))
+                    property_name = self.parser.normalize_entity(match.group(2))
+
+                    results = list(janus.query(f"{property_name}({entity})"))
                     return "Yes" if results else "No"
-                except Exception as e:
-                    return "Error in query"
 
-        elif ace_query.lower().startswith('who is '):
-            property = ace_query[7:].strip().lower()
-            try:
-                results = list(janus.query(f"{property}(X)"))
-                if results:
-                    entities = [result['X'] for result in results]
-                    return ', '.join([e.title() for e in entities])
-                else:
-                    return "No one"
-            except Exception as e:
-                return "Error in query"
+            # Who is X? queries
+            elif ace_query.lower().startswith('who is '):
+                property_name = ace_query[7:].strip().lower()
+                property_name = self.parser.normalize_entity(property_name)
 
-        elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like\??$', ace_query.lower()):
-            match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like\??$', ace_query.lower())
-            entity = match.group(1)
-            try:
-                results = list(janus.query(f"likes({entity.lower()}, X)"))
-                if results:
-                    objects = [result['X'] for result in results]
-                    return ', '.join([o.title() for o in objects])
-                else:
-                    return "Nothing found"
-            except Exception as e:
-                return "Error in query"
+                try:
+                    results = list(janus.query(f"{property_name}(X)"))
+                    if results:
+                        entities = [result['X'].title() for result in results]
+                        return ', '.join(entities)
+                    else:
+                        return "No one"
+                except Exception:
+                    return "Cannot answer this query"
+
+            # What does X like? queries
+            elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower()):
+                match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower())
+                entity = self.parser.normalize_entity(match.group(1))
+
+                try:
+                    results = list(janus.query(f"likes({entity}, X)"))
+                    if results:
+                        objects = [result['X'].title() for result in results]
+                        return ', '.join(objects)
+                    else:
+                        return "Nothing found"
+                except Exception:
+                    return "Cannot answer this query"
+
+        except Exception as e:
+            print(f"Query error: {e}")
+            return f"Error in query: {str(e)}"
 
         return "Cannot answer this type of query"
 
@@ -190,14 +316,28 @@ class SimplePrologEngine:
 
         all_facts = []
         try:
+            # Get persons
             for result in janus.query("person(X)"):
                 all_facts.append(f"{result['X'].title()} is a person")
+
+            # Get happy entities
             for result in janus.query("happy(X)"):
                 all_facts.append(f"{result['X'].title()} is happy")
+
+            # Get likes relationships
             for result in janus.query("likes(X, Y)"):
-                all_facts.append(f"{result['X'].title()} likes {result['Y']}")
+                all_facts.append(f"{result['X'].title()} likes {result['Y'].title()}")
+
+            # Get properties
             for result in janus.query("has_property(X, P, V)"):
-                all_facts.append(f"{result['X'].title()} has {result['P'].replace('_', '-')} {result['V']}")
+                prop = result['P'].replace('_', ' ')
+                all_facts.append(f"{result['X'].title()} has {prop} {result['V']}")
+
+            # Get other properties
+            for prop in ['sad', 'tall', 'smart', 'young', 'old']:
+                for result in janus.query(f"{prop}(X)"):
+                    all_facts.append(f"{result['X'].title()} is {prop}")
+
         except Exception as e:
             print(f"Error getting facts: {e}")
 
@@ -249,7 +389,7 @@ class ModernACECalculator:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logic Calculator")
+        self.root.title("ACE Logic Calculator - Fixed")
         self.root.geometry("900x800")
         self.root.configure(bg='#2c3e50')
 
@@ -293,10 +433,6 @@ class ModernACECalculator:
         main_container = tk.Frame(self.root, bg=self.colors['bg'])
         main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
-        # Title
-        # title_label = ttk.Label(main_container, text="ACE Logic Calculator", style='Title.TLabel')
-        # title_label.pack(pady=(0, 20))
-
         # Create main sections
         self.setup_results_section(main_container)
         self.setup_input_section(main_container)
@@ -339,12 +475,15 @@ class ModernACECalculator:
         )
         self.text_input.pack(fill=tk.BOTH, expand=True)
 
-        # Add example text
+        # Add improved example text
         example_text = """John is a person.
 Mary is a person.
 John likes chocolate.
+Mary likes books.
 X is happy if X likes chocolate.
+X is sad if X likes books.
 Is John happy?
+Is Mary sad?
 Who is happy?
 What does John like?"""
 
@@ -355,52 +494,35 @@ What does John like?"""
         button_panel = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         button_panel.pack(fill=tk.X, pady=(0, 15))
 
-        # ttk.Label(button_panel, text="Quick Insert Templates", style='Subtitle.TLabel').pack(pady=(15, 10))
-
         # Button grid container
         grid_container = tk.Frame(button_panel, bg=self.colors['card'])
-        grid_container.pack(padx=15, pady=(0, 15))
+        grid_container.pack(padx=15, pady=(15, 15))
 
         # Row 1: Statement types
         self.create_calc_button(grid_container, "FACT",
-                                lambda: self.insert_template("<SUBJECT> is <PROPERTY>.\n"),
+                                lambda: self.insert_template("\n<SUBJECT> is <PROPERTY>."),
                                 '#27ae60', 0, 0)
         self.create_calc_button(grid_container, "RULE",
-                                lambda: self.insert_template("<SUBJECT> is <CONCLUSION> if <CONDITION>.\n"),
+                                lambda: self.insert_template("\n<SUBJECT> is <CONCLUSION> if <CONDITION>."),
                                 '#3498db', 0, 1)
         self.create_calc_button(grid_container, "QUERY",
-                                lambda: self.insert_template("Is <SUBJECT> <PROPERTY>?\n"),
+                                lambda: self.insert_template("\nIs <SUBJECT> <PROPERTY>?"),
                                 '#f39c12', 0, 2)
-        #
-        # # Row 2: Common templates
-        # self.create_calc_button(grid_container, "IS PERSON",
-        #                         lambda: self.insert_template("<NAME> is a person.\n"),
-        #                         '#9b59b6', 1, 0)
-        # self.create_calc_button(grid_container, "LIKES",
-        #                         lambda: self.insert_template("<SUBJECT> likes <OBJECT>.\n"),
-        #                         '#9b59b6', 1, 1)
-        # self.create_calc_button(grid_container, "HAS PROPERTY",
-        #                         lambda: self.insert_template("<SUBJECT> has <PROPERTY> <VALUE>.\n"),
-        #                         '#9b59b6', 1, 2)
 
-        # Row 3: Question templates
+        # Row 2: Question templates
         self.create_calc_button(grid_container, "WHO IS ...?",
-                                lambda: self.insert_template("Who is <PROPERTY>?\n"),
-                                '#e67e22', 2, 0)
+                                lambda: self.insert_template("\nWho is <PROPERTY>?"),
+                                '#e67e22', 1, 0)
         self.create_calc_button(grid_container, "WHAT LIKES ...?",
-                                lambda: self.insert_template("What does <SUBJECT> like?\n"),
-                                '#e67e22', 2, 1)
+                                lambda: self.insert_template("\nWhat does <SUBJECT> like?"),
+                                '#e67e22', 1, 1)
         self.create_calc_button(grid_container, "IS ... HAPPY?",
-                                lambda: self.insert_template("Is <SUBJECT> happy?\n"),
-                                '#e67e22', 2, 2)
+                                lambda: self.insert_template("\nIs <SUBJECT> happy?"),
+                                '#e67e22', 1, 2)
 
-        # Row 4: Actions
-        # action_frame = tk.Frame(button_panel, bg=self.colors['card'])
-        # action_frame.pack(pady=(10, 15))
-
+        # Row 3: Actions
         self.create_calc_button(grid_container, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 3, width=15)
-        self.create_calc_button(grid_container, "CLEAR", self.clear_all, '#e74c3c', 2, 3, width=15)
-        # self.create_calc_button(action_frame, "CLEAR TEXT", self.clear_text, '#f39c12', 0, 2, width=15)
+        self.create_calc_button(grid_container, "CLEAR", self.clear_all, '#e74c3c', 1, 3, width=15)
 
     def create_calc_button(self, parent, text, command, color, row, col, width=12):
         """Create a calculator-style button"""
@@ -496,21 +618,23 @@ What does John like?"""
 
             # Prepare results
             results = []
+            results.append(f"Processed {facts_count} facts and {rules_count} rules\n")
 
             # Answer queries
             if queries:
+                results.append("Query Results:")
+                results.append("-" * 40)
                 for query in queries:
                     answer = self.inference_engine.query(query.content)
                     results.append(f"Q: {query.content}")
                     results.append(f"A: {answer}")
                     results.append("")
 
-            results.append(f"Processed {facts_count} facts and {rules_count} rules\n")
-
             # Show all current facts
             all_facts = self.inference_engine.get_all_facts()
             if all_facts:
-                results.append("Current knowledge base:")
+                results.append("Current Knowledge Base:")
+                results.append("-" * 40)
                 for fact in all_facts:
                     results.append(f"  • {fact}")
                 results.append("")
@@ -525,6 +649,7 @@ What does John like?"""
 
         except Exception as e:
             messagebox.showerror("Error", f"Error executing statements: {str(e)}")
+            self.status_var.set(f"Error: {str(e)}")
 
     def clear_all(self):
         """Clear everything"""
