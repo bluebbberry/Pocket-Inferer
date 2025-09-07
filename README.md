@@ -28,3 +28,9 @@ main.py
 - The Programming Mode provides a full development environment
 - Use proper ACE syntax like "John is a person.", "X is happy if X likes chocolate."
 - Queries should end with "?" like "Is John happy?"
+
+### Demo
+
+Here a short demo video:
+
+https://makertube.net/w/uGJAWmF9nFj9tARrKS4NpF
