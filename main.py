@@ -294,13 +294,13 @@ class ModernACECalculator:
         main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
         # Title
-        title_label = ttk.Label(main_container, text="ACE Logic Calculator", style='Title.TLabel')
-        title_label.pack(pady=(0, 20))
+        # title_label = ttk.Label(main_container, text="ACE Logic Calculator", style='Title.TLabel')
+        # title_label.pack(pady=(0, 20))
 
         # Create main sections
+        self.setup_results_section(main_container)
         self.setup_input_section(main_container)
         self.setup_button_section(main_container)
-        self.setup_results_section(main_container)
         self.setup_status_bar(main_container)
 
     def setup_input_section(self, parent):
@@ -356,7 +356,7 @@ What does John like?"""
         button_panel = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         button_panel.pack(fill=tk.X, pady=(0, 15))
 
-        ttk.Label(button_panel, text="Quick Insert Templates", style='Subtitle.TLabel').pack(pady=(15, 10))
+        # ttk.Label(button_panel, text="Quick Insert Templates", style='Subtitle.TLabel').pack(pady=(15, 10))
 
         # Button grid container
         grid_container = tk.Frame(button_panel, bg=self.colors['card'])
@@ -372,17 +372,17 @@ What does John like?"""
         self.create_calc_button(grid_container, "QUERY",
                                 lambda: self.insert_template("Is <SUBJECT> <PROPERTY>?\n"),
                                 '#f39c12', 0, 2)
-
-        # Row 2: Common templates
-        self.create_calc_button(grid_container, "IS PERSON",
-                                lambda: self.insert_template("<NAME> is a person.\n"),
-                                '#9b59b6', 1, 0)
-        self.create_calc_button(grid_container, "LIKES",
-                                lambda: self.insert_template("<SUBJECT> likes <OBJECT>.\n"),
-                                '#9b59b6', 1, 1)
-        self.create_calc_button(grid_container, "HAS PROPERTY",
-                                lambda: self.insert_template("<SUBJECT> has <PROPERTY> <VALUE>.\n"),
-                                '#9b59b6', 1, 2)
+        #
+        # # Row 2: Common templates
+        # self.create_calc_button(grid_container, "IS PERSON",
+        #                         lambda: self.insert_template("<NAME> is a person.\n"),
+        #                         '#9b59b6', 1, 0)
+        # self.create_calc_button(grid_container, "LIKES",
+        #                         lambda: self.insert_template("<SUBJECT> likes <OBJECT>.\n"),
+        #                         '#9b59b6', 1, 1)
+        # self.create_calc_button(grid_container, "HAS PROPERTY",
+        #                         lambda: self.insert_template("<SUBJECT> has <PROPERTY> <VALUE>.\n"),
+        #                         '#9b59b6', 1, 2)
 
         # Row 3: Question templates
         self.create_calc_button(grid_container, "WHO IS?",
