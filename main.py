@@ -364,13 +364,13 @@ What does John like?"""
 
         # Row 1: Statement types
         self.create_calc_button(grid_container, "FACT",
-                                lambda: self.insert_template("<SUBJECT> is <PROPERTY>.\n"),
+                                lambda: self.insert_template("\n<SUBJECT> is <PROPERTY>."),
                                 '#27ae60', 0, 0)
         self.create_calc_button(grid_container, "RULE",
-                                lambda: self.insert_template("<SUBJECT> is <CONCLUSION> if <CONDITION>.\n"),
+                                lambda: self.insert_template("\n<SUBJECT> is <CONCLUSION> if <CONDITION>."),
                                 '#3498db', 0, 1)
         self.create_calc_button(grid_container, "QUERY",
-                                lambda: self.insert_template("Is <SUBJECT> <PROPERTY>?\n"),
+                                lambda: self.insert_template("\nIs <SUBJECT> <PROPERTY>?"),
                                 '#f39c12', 0, 2)
         #
         # # Row 2: Common templates
@@ -386,13 +386,13 @@ What does John like?"""
 
         # Row 3: Question templates
         self.create_calc_button(grid_container, "WHO IS ...?",
-                                lambda: self.insert_template("Who is <PROPERTY>?\n"),
+                                lambda: self.insert_template("\nWho is <PROPERTY>?"),
                                 '#e67e22', 2, 0)
         self.create_calc_button(grid_container, "WHAT LIKES ...?",
-                                lambda: self.insert_template("What does <SUBJECT> like?\n"),
+                                lambda: self.insert_template("\nWhat does <SUBJECT> like?"),
                                 '#e67e22', 2, 1)
         self.create_calc_button(grid_container, "IS ... HAPPY?",
-                                lambda: self.insert_template("Is <SUBJECT> happy?\n"),
+                                lambda: self.insert_template("\nIs <SUBJECT> happy?"),
                                 '#e67e22', 2, 2)
 
         # Row 4: Actions
