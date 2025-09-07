@@ -1,30 +1,12 @@
-# !/usr/bin/env python3
+#!/usr/bin/env python3
 """
-ACE Logical Inference Calculator with SWI-Prolog Backend
-A desktop application implementing Attempto Controlled English for logical reasoning
-Uses SWI-Prolog through janus_swi for proper logical inference
-
-INSTALLATION AND SETUP:
-1. Install SWI-Prolog:
-   - Windows: Download from https://www.swi-prolog.org/download/stable
-   - Ubuntu/Debian: sudo apt-get install swi-prolog
-   - macOS: brew install swi-prolog
-
-2. Install Python dependencies:
-   pip install janus_swi
-
-3. Run the program:
-   python ace_calculator_prolog.py
-
-USAGE:
-- The Calculator Mode allows quick testing of ACE statements
-- The Programming Mode provides a full development environment
-- Use proper ACE syntax like "John is a person.", "X is happy if X likes chocolate."
-- Queries should end with "?" like "Is John happy?"
+ACE Logical Inference Calculator - Modern Calculator-Style UI
+A redesigned desktop application with calculator-like interface for logical reasoning
+Combines free-form text input with tagged template insertion
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 import csv
 import json
 import re
@@ -32,6 +14,7 @@ from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+# Import the original parser and engine components
 from ace_prolog_parser import ACEToPrologParser
 
 try:
@@ -40,8 +23,6 @@ try:
     PROLOG_AVAILABLE = True
 except ImportError:
     PROLOG_AVAILABLE = False
-    print("Warning: janus_swi not available. Install with: pip install janus_swi")
-    print("Also ensure SWI-Prolog is installed on your system.")
 
 
 @dataclass
@@ -104,11 +85,10 @@ class SimplePrologEngine:
         self.prolog_available = PROLOG_AVAILABLE
         self.facts = []
         self.rules = []
-        self.parser = ACEToPrologParser()
+        self.parser = ACEToPrologParser() if PROLOG_AVAILABLE else None
 
         if self.prolog_available:
             try:
-                # Test basic functionality
                 test_result = list(janus.query("true"))
                 print("Prolog engine initialized successfully")
             except Exception as e:
@@ -122,27 +102,20 @@ class SimplePrologEngine:
 
         if self.prolog_available:
             try:
-                # Retract common predicates
                 predicates_to_clear = [
-                    "person(_)",
-                    "likes(_, _)",
-                    "happy(_)",
-                    "has_property(_, _, _)"
+                    "person(_)", "likes(_, _)", "happy(_)", "has_property(_, _, _)"
                 ]
-
                 for pred in predicates_to_clear:
                     try:
                         janus.query_once(f"retractall({pred})")
                     except:
-                        pass  # Predicate might not exist
-
+                        pass
             except Exception as e:
                 print(f"Error clearing Prolog knowledge: {e}")
 
     def add_fact(self, ace_fact: str):
         """Add a fact to the Prolog knowledge base"""
         self.facts.append(ace_fact)
-
         if not self.prolog_available:
             return
 
@@ -150,14 +123,12 @@ class SimplePrologEngine:
         if prolog_fact:
             try:
                 janus.query_once(f"assertz({prolog_fact})")
-                print(f"Added fact: {prolog_fact}")
             except Exception as e:
                 print(f"Error adding fact {prolog_fact}: {e}")
 
     def add_rule(self, ace_rule: str):
         """Add a rule to the Prolog knowledge base"""
         self.rules.append(ace_rule)
-
         if not self.prolog_available:
             return
 
@@ -165,32 +136,26 @@ class SimplePrologEngine:
         if prolog_rule:
             try:
                 janus.query_once(f"assertz(({prolog_rule}))")
-                print(f"Added rule: {prolog_rule}")
             except Exception as e:
                 print(f"Error adding rule {prolog_rule}: {e}")
 
     def query(self, ace_query: str) -> str:
         """Query the Prolog knowledge base"""
         if not self.prolog_available:
-            return "Prolog not available. Please install janus_swi and SWI-Prolog."
+            return "Prolog not available"
 
         ace_query = ace_query.strip().rstrip('?')
 
-        # Handle "Is X Y?" queries
         if ace_query.lower().startswith('is '):
             query_content = ace_query[3:].strip()
             prolog_query = self.parser._convert_ace_expression_to_prolog(query_content)
-
             if prolog_query:
                 try:
-                    # Try the query and check if it succeeds
                     results = list(janus.query(prolog_query))
                     return "Yes" if results else "No"
                 except Exception as e:
-                    print(f"Error querying {prolog_query}: {e}")
                     return "Error in query"
 
-        # Handle "Who is Y?" queries
         elif ace_query.lower().startswith('who is '):
             property = ace_query[7:].strip().lower()
             try:
@@ -201,10 +166,8 @@ class SimplePrologEngine:
                 else:
                     return "No one"
             except Exception as e:
-                print(f"Error in who query: {e}")
                 return "Error in query"
 
-        # Handle "What does X like?" queries
         elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like\??$', ace_query.lower()):
             match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like\??$', ace_query.lower())
             entity = match.group(1)
@@ -216,7 +179,6 @@ class SimplePrologEngine:
                 else:
                     return "Nothing found"
             except Exception as e:
-                print(f"Error in what query: {e}")
                 return "Error in query"
 
         return "Cannot answer this type of query"
@@ -227,24 +189,15 @@ class SimplePrologEngine:
             return []
 
         all_facts = []
-
         try:
-            # Get all person facts
             for result in janus.query("person(X)"):
                 all_facts.append(f"{result['X'].title()} is a person")
-
-            # Get all happy facts
             for result in janus.query("happy(X)"):
                 all_facts.append(f"{result['X'].title()} is happy")
-
-            # Get all likes facts
             for result in janus.query("likes(X, Y)"):
                 all_facts.append(f"{result['X'].title()} likes {result['Y']}")
-
-            # Get all property facts
             for result in janus.query("has_property(X, P, V)"):
                 all_facts.append(f"{result['X'].title()} has {result['P'].replace('_', '-')} {result['V']}")
-
         except Exception as e:
             print(f"Error getting facts: {e}")
 
@@ -278,11 +231,9 @@ class CSVProcessor:
             for header in headers:
                 value = row.get(header, '').strip()
                 if value:
-                    # Clean header and value for ACE format
                     clean_header = header.lower().replace(' ', '-').replace('_', '-')
                     clean_value = value.replace(' ', '-')
 
-                    # Create ACE fact: "Entity-1 has-age 25."
                     if value.isdigit():
                         fact = f"{entity_name} has {clean_header} {value}."
                     else:
@@ -293,71 +244,103 @@ class CSVProcessor:
         return facts
 
 
-class ACECalculatorApp:
-    """Main application class for the ACE Logical Calculator with Prolog backend"""
+class ModernACECalculator:
+    """Modern calculator-style ACE interface with hybrid input approach"""
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logical Inference Calculator (Prolog Backend)")
-        self.root.geometry("1000x700")
+        self.root.title("ACE Logic Calculator")
+        self.root.geometry("900x800")
+        self.root.configure(bg='#2c3e50')
+
+        # Style configuration
+        self.setup_styles()
 
         # Core components
         self.parser = ACEParser()
         self.inference_engine = SimplePrologEngine()
 
-        # Application state
-        self.current_facts = []
-        self.current_rules = []
-        self.current_queries = []
-
-        # Setup UI
+        # UI components
         self.setup_ui()
 
-        # Show Prolog status
-        if not PROLOG_AVAILABLE:
-            messagebox.showwarning("Prolog Not Available",
-                                   "janus_swi is not installed. Please install it with:\n"
-                                   "pip install janus_swi\n\n"
-                                   "Also ensure SWI-Prolog is installed on your system.")
+    def setup_styles(self):
+        """Setup modern styling"""
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+
+        # Color scheme
+        self.colors = {
+            'bg': '#2c3e50',
+            'card': '#34495e',
+            'accent': '#3498db',
+            'success': '#27ae60',
+            'warning': '#f39c12',
+            'danger': '#e74c3c',
+            'text': '#ecf0f1',
+            'text_dark': '#2c3e50'
+        }
+
+        # Configure styles
+        self.style.configure('Card.TFrame', background=self.colors['card'], relief='flat')
+        self.style.configure('Title.TLabel', background=self.colors['bg'], foreground=self.colors['text'],
+                             font=('Arial', 18, 'bold'))
+        self.style.configure('Subtitle.TLabel', background=self.colors['card'], foreground=self.colors['text'],
+                             font=('Arial', 11, 'bold'))
 
     def setup_ui(self):
-        """Setup the user interface"""
-        # Create notebook for tabs
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        """Setup the modern calculator interface"""
+        # Main container
+        main_container = tk.Frame(self.root, bg=self.colors['bg'])
+        main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
-        # Calculator mode tab
-        self.calculator_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.calculator_frame, text="Calculator Mode")
-        self.setup_calculator_ui()
+        # Title
+        title_label = ttk.Label(main_container, text="ACE Logic Calculator", style='Title.TLabel')
+        title_label.pack(pady=(0, 20))
 
-        # Programming mode tab
-        self.programming_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.programming_frame, text="Programming Mode")
-        self.setup_programming_ui()
+        # Create main sections
+        self.setup_input_section(main_container)
+        self.setup_button_section(main_container)
+        self.setup_results_section(main_container)
+        self.setup_status_bar(main_container)
 
-        # Status bar
-        self.status_var = tk.StringVar()
-        status_text = "Ready - Prolog Available" if PROLOG_AVAILABLE else "Ready - Prolog NOT Available"
-        self.status_var.set(status_text)
-        self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+    def setup_input_section(self, parent):
+        """Setup main text input area"""
+        input_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
+        input_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
-    def setup_calculator_ui(self):
-        """Setup calculator mode interface"""
-        # Main frame
-        main_frame = ttk.Frame(self.calculator_frame)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Header
+        header_frame = tk.Frame(input_frame, bg=self.colors['card'])
+        header_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
 
-        # Input section
-        input_frame = ttk.LabelFrame(main_frame, text="Input ACE Statements")
-        input_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        ttk.Label(header_frame, text="ACE Statements", style='Subtitle.TLabel').pack(side=tk.LEFT)
 
-        self.calc_input = scrolledtext.ScrolledText(input_frame, height=8, width=60)
-        self.calc_input.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # File operations
+        file_frame = tk.Frame(header_frame, bg=self.colors['card'])
+        file_frame.pack(side=tk.RIGHT)
+
+        self.create_small_button(file_frame, "Load CSV", self.load_csv, '#9b59b6')
+        self.create_small_button(file_frame, "Import", self.import_file, '#9b59b6')
+        self.create_small_button(file_frame, "Export", self.export_file, '#9b59b6')
+
+        # Main text area
+        text_frame = tk.Frame(input_frame, bg=self.colors['card'])
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+
+        self.text_input = scrolledtext.ScrolledText(
+            text_frame,
+            height=12,
+            font=('Consolas', 11),
+            bg='#ecf0f1',
+            fg=self.colors['text_dark'],
+            relief='flat',
+            bd=5,
+            wrap=tk.WORD,
+            insertbackground='#2c3e50'
+        )
+        self.text_input.pack(fill=tk.BOTH, expand=True)
 
         # Add example text
-        example_text = """# Example ACE statements:
+        example_text = """# Example ACE statements (you can edit/delete these):
 John is a person.
 Mary is a person.
 John likes chocolate.
@@ -366,123 +349,133 @@ Is John happy?
 Who is happy?
 What does John like?"""
 
-        self.calc_input.insert(tk.END, example_text)
+        self.text_input.insert(tk.END, example_text)
 
-        # Buttons
-        button_frame = ttk.Frame(input_frame)
-        button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+    def setup_button_section(self, parent):
+        """Setup calculator-style button panel"""
+        button_panel = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
+        button_panel.pack(fill=tk.X, pady=(0, 15))
 
-        ttk.Button(button_frame, text="Process & Run",
-                   command=self.process_and_run).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="Clear All",
-                   command=self.clear_all).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(button_panel, text="Quick Insert Templates", style='Subtitle.TLabel').pack(pady=(15, 10))
 
-        # Results section
-        results_frame = ttk.LabelFrame(main_frame, text="Results")
+        # Button grid container
+        grid_container = tk.Frame(button_panel, bg=self.colors['card'])
+        grid_container.pack(padx=15, pady=(0, 15))
+
+        # Row 1: Statement types
+        self.create_calc_button(grid_container, "FACT",
+                                lambda: self.insert_template("<SUBJECT> is <PROPERTY>.\n"),
+                                '#27ae60', 0, 0)
+        self.create_calc_button(grid_container, "RULE",
+                                lambda: self.insert_template("<SUBJECT> is <CONCLUSION> if <CONDITION>.\n"),
+                                '#3498db', 0, 1)
+        self.create_calc_button(grid_container, "QUERY",
+                                lambda: self.insert_template("Is <SUBJECT> <PROPERTY>?\n"),
+                                '#f39c12', 0, 2)
+
+        # Row 2: Common templates
+        self.create_calc_button(grid_container, "IS PERSON",
+                                lambda: self.insert_template("<NAME> is a person.\n"),
+                                '#9b59b6', 1, 0)
+        self.create_calc_button(grid_container, "LIKES",
+                                lambda: self.insert_template("<SUBJECT> likes <OBJECT>.\n"),
+                                '#9b59b6', 1, 1)
+        self.create_calc_button(grid_container, "HAS PROPERTY",
+                                lambda: self.insert_template("<SUBJECT> has <PROPERTY> <VALUE>.\n"),
+                                '#9b59b6', 1, 2)
+
+        # Row 3: Question templates
+        self.create_calc_button(grid_container, "WHO IS?",
+                                lambda: self.insert_template("Who is <PROPERTY>?\n"),
+                                '#e67e22', 2, 0)
+        self.create_calc_button(grid_container, "WHAT LIKES?",
+                                lambda: self.insert_template("What does <SUBJECT> like?\n"),
+                                '#e67e22', 2, 1)
+        self.create_calc_button(grid_container, "IS HAPPY?",
+                                lambda: self.insert_template("Is <SUBJECT> happy?\n"),
+                                '#e67e22', 2, 2)
+
+        # Row 4: Actions
+        action_frame = tk.Frame(button_panel, bg=self.colors['card'])
+        action_frame.pack(pady=(10, 15))
+
+        self.create_calc_button(action_frame, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 0, width=15)
+        self.create_calc_button(action_frame, "CLEAR ALL", self.clear_all, '#e74c3c', 0, 1, width=15)
+        self.create_calc_button(action_frame, "CLEAR TEXT", self.clear_text, '#f39c12', 0, 2, width=15)
+
+    def create_calc_button(self, parent, text, command, color, row, col, width=12):
+        """Create a calculator-style button"""
+        btn = tk.Button(parent, text=text, command=command,
+                        bg=color, fg='white', font=('Arial', 9, 'bold'),
+                        relief='raised', bd=2, width=width, pady=8,
+                        activebackground=color, activeforeground='white')
+        btn.grid(row=row, column=col, padx=5, pady=3, sticky='ew')
+        parent.columnconfigure(col, weight=1)
+
+    def create_small_button(self, parent, text, command, color):
+        """Create a small button for file operations"""
+        btn = tk.Button(parent, text=text, command=command,
+                        bg=color, fg='white', font=('Arial', 8, 'bold'),
+                        relief='raised', bd=1, padx=10, pady=2,
+                        activebackground=color, activeforeground='white')
+        btn.pack(side=tk.LEFT, padx=2)
+
+    def setup_results_section(self, parent):
+        """Setup results display"""
+        results_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         results_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.calc_results = scrolledtext.ScrolledText(results_frame, height=8, state=tk.DISABLED)
-        self.calc_results.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        ttk.Label(results_frame, text="Results", style='Subtitle.TLabel').pack(pady=(15, 10))
 
-    def setup_programming_ui(self):
-        """Setup programming mode interface"""
-        # Main paned window
-        paned = ttk.PanedWindow(self.programming_frame, orient=tk.HORIZONTAL)
-        paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Results text area
+        self.results_display = scrolledtext.ScrolledText(
+            results_frame,
+            height=10,
+            font=('Consolas', 10),
+            state=tk.DISABLED,
+            bg='#ecf0f1',
+            fg=self.colors['text_dark']
+        )
+        self.results_display.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
 
-        # Left panel - Editor
-        left_frame = ttk.LabelFrame(paned, text="ACE Editor")
-        paned.add(left_frame, weight=2)
+    def setup_status_bar(self, parent):
+        """Setup status bar"""
+        status_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
+        status_frame.pack(fill=tk.X, pady=(15, 0))
 
-        # Toolbar
-        toolbar = ttk.Frame(left_frame)
-        toolbar.pack(fill=tk.X, padx=10, pady=5)
+        self.status_var = tk.StringVar()
+        status_text = "Ready - Prolog Available" if PROLOG_AVAILABLE else "Ready - Prolog NOT Available"
+        self.status_var.set(status_text)
 
-        ttk.Button(toolbar, text="Load CSV", command=self.load_csv).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(toolbar, text="Export", command=self.export_knowledge).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(toolbar, text="Import", command=self.import_knowledge).pack(side=tk.LEFT, padx=(0, 5))
+        status_label = tk.Label(status_frame, textvariable=self.status_var,
+                                bg=self.colors['card'], fg=self.colors['text'],
+                                font=('Arial', 9), anchor='w')
+        status_label.pack(fill=tk.X, padx=10, pady=5)
 
-        # Editor
-        self.prog_editor = scrolledtext.ScrolledText(left_frame, height=20)
-        self.prog_editor.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def insert_template(self, template):
+        """Insert template at current cursor position"""
+        cursor_pos = self.text_input.index(tk.INSERT)
+        self.text_input.insert(cursor_pos, template)
+        self.text_input.focus_set()
 
-        # Right panel - Results and control
-        right_frame = ttk.LabelFrame(paned, text="Results & Control")
-        paned.add(right_frame, weight=1)
+        # Move cursor to first placeholder
+        if '<' in template:
+            start_pos = self.text_input.search('<', cursor_pos)
+            if start_pos:
+                end_pos = self.text_input.search('>', start_pos)
+                if end_pos:
+                    # Select the placeholder text
+                    self.text_input.tag_add(tk.SEL, start_pos, f"{end_pos}+1c")
+                    self.text_input.mark_set(tk.INSERT, start_pos)
 
-        # Control buttons
-        control_frame = ttk.Frame(right_frame)
-        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        self.status_var.set(f"Template inserted: {template.strip()}")
 
-        ttk.Button(control_frame, text="Execute",
-                   command=self.execute_programming_mode).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(control_frame, text="Clear",
-                   command=self.clear_programming).pack(side=tk.LEFT, padx=(0, 5))
+    def execute_statements(self):
+        """Execute all statements in the text box"""
+        text_content = self.text_input.get(1.0, tk.END)
 
-        # Results display
-        self.prog_results = scrolledtext.ScrolledText(right_frame, height=15, state=tk.DISABLED)
-        self.prog_results.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-
-    def process_and_run(self):
-        """Process ACE statements and run queries"""
-        text = self.calc_input.get(1.0, tk.END)
         try:
-            statements = self.parser.parse_text(text)
-
-            # Clear previous knowledge
-            self.inference_engine.clear()
-            self.current_facts = []
-            self.current_rules = []
-            self.current_queries = []
-
-            # Process statements
-            for stmt in statements:
-                if stmt.statement_type == 'fact':
-                    self.inference_engine.add_fact(stmt.content)
-                    self.current_facts.append(stmt)
-                elif stmt.statement_type == 'rule':
-                    self.inference_engine.add_rule(stmt.content)
-                    self.current_rules.append(stmt)
-                elif stmt.statement_type == 'query':
-                    self.current_queries.append(stmt)
-
-            # Run queries and display results
-            results = []
-            results.append("=== PROLOG INFERENCE RESULTS ===\n")
-
-            # Show all current facts
-            all_facts = self.inference_engine.get_all_facts()
-            if all_facts:
-                results.append("Current facts in knowledge base:")
-                for fact in all_facts:
-                    results.append(f"  • {fact}")
-                results.append("")
-
-            # Answer queries
-            if self.current_queries:
-                results.append("Query answers:")
-                for query in self.current_queries:
-                    answer = self.inference_engine.query(query.content)
-                    results.append(f"  Q: {query.content}")
-                    results.append(f"  A: {answer}")
-                    results.append("")
-
-            # Display results
-            self.calc_results.config(state=tk.NORMAL)
-            self.calc_results.delete(1.0, tk.END)
-            self.calc_results.insert(tk.END, "\n".join(results))
-            self.calc_results.config(state=tk.DISABLED)
-
-            self.status_var.set(f"Processed {len(statements)} statements")
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Error processing statements: {str(e)}")
-
-    def execute_programming_mode(self):
-        """Execute statements in programming mode"""
-        text = self.prog_editor.get(1.0, tk.END)
-        try:
-            statements = self.parser.parse_text(text)
+            statements = self.parser.parse_text(text_content)
 
             # Clear previous knowledge
             self.inference_engine.clear()
@@ -510,7 +503,7 @@ What does John like?"""
             # Show all current facts
             all_facts = self.inference_engine.get_all_facts()
             if all_facts:
-                results.append("Knowledge base contents:")
+                results.append("Current knowledge base:")
                 for fact in all_facts:
                     results.append(f"  • {fact}")
                 results.append("")
@@ -525,31 +518,28 @@ What does John like?"""
                     results.append("")
 
             # Display results
-            self.prog_results.config(state=tk.NORMAL)
-            self.prog_results.delete(1.0, tk.END)
-            self.prog_results.insert(tk.END, "\n".join(results))
-            self.prog_results.config(state=tk.DISABLED)
+            self.results_display.config(state=tk.NORMAL)
+            self.results_display.delete(1.0, tk.END)
+            self.results_display.insert(tk.END, "\n".join(results))
+            self.results_display.config(state=tk.DISABLED)
 
-            self.status_var.set("Execution completed")
+            self.status_var.set(f"Executed {len(statements)} statements successfully")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Error executing: {str(e)}")
+            messagebox.showerror("Error", f"Error executing statements: {str(e)}")
 
     def clear_all(self):
-        """Clear all data in calculator mode"""
+        """Clear everything"""
         self.inference_engine.clear()
-        self.calc_results.config(state=tk.NORMAL)
-        self.calc_results.delete(1.0, tk.END)
-        self.calc_results.config(state=tk.DISABLED)
-        self.status_var.set("Cleared all data")
+        self.results_display.config(state=tk.NORMAL)
+        self.results_display.delete(1.0, tk.END)
+        self.results_display.config(state=tk.DISABLED)
+        self.status_var.set("All data cleared")
 
-    def clear_programming(self):
-        """Clear programming mode"""
-        self.inference_engine.clear()
-        self.prog_results.config(state=tk.NORMAL)
-        self.prog_results.delete(1.0, tk.END)
-        self.prog_results.config(state=tk.DISABLED)
-        self.status_var.set("Cleared programming mode")
+    def clear_text(self):
+        """Clear only the text input"""
+        self.text_input.delete(1.0, tk.END)
+        self.status_var.set("Text cleared")
 
     def load_csv(self):
         """Load CSV file and convert to ACE facts"""
@@ -563,42 +553,42 @@ What does John like?"""
                 headers, data = CSVProcessor.load_csv(file_path)
                 facts = CSVProcessor.convert_to_ace_facts(headers, data)
 
-                # Add facts to editor
-                current_text = self.prog_editor.get(1.0, tk.END)
+                # Add facts to text area
+                current_text = self.text_input.get(1.0, tk.END)
                 if current_text.strip():
-                    self.prog_editor.insert(tk.END, "\n\n# CSV Facts\n")
+                    self.text_input.insert(tk.END, "\n\n# CSV Facts\n")
                 else:
-                    self.prog_editor.insert(tk.END, "# CSV Facts\n")
+                    self.text_input.insert(tk.END, "# CSV Facts\n")
 
                 for fact in facts:
-                    self.prog_editor.insert(tk.END, fact + "\n")
+                    self.text_input.insert(tk.END, fact + "\n")
 
                 self.status_var.set(f"Loaded {len(facts)} facts from CSV")
 
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading CSV: {str(e)}")
 
-    def export_knowledge(self):
-        """Export current knowledge to file"""
+    def export_file(self):
+        """Export current text to file"""
         file_path = filedialog.asksaveasfilename(
-            title="Export Knowledge",
+            title="Export Statements",
             defaultextension=".ace",
             filetypes=[("ACE files", "*.ace"), ("Text files", "*.txt"), ("All files", "*.*")]
         )
 
         if file_path:
             try:
-                content = self.prog_editor.get(1.0, tk.END)
+                content = self.text_input.get(1.0, tk.END)
                 with open(file_path, 'w', encoding='utf-8') as file:
                     file.write(content)
-                self.status_var.set("Knowledge exported successfully")
+                self.status_var.set("File exported successfully")
             except Exception as e:
-                messagebox.showerror("Error", f"Error exporting")
+                messagebox.showerror("Error", f"Error exporting: {str(e)}")
 
-    def import_knowledge(self):
-        """Import knowledge from file"""
+    def import_file(self):
+        """Import statements from file"""
         file_path = filedialog.askopenfilename(
-            title="Import Knowledge",
+            title="Import Statements",
             filetypes=[("ACE files", "*.ace"), ("Text files", "*.txt"), ("All files", "*.*")]
         )
 
@@ -607,103 +597,19 @@ What does John like?"""
                 with open(file_path, 'r', encoding='utf-8') as file:
                     content = file.read()
 
-                self.prog_editor.delete(1.0, tk.END)
-                self.prog_editor.insert(tk.END, content)
-                self.status_var.set("Knowledge imported successfully")
+                self.text_input.delete(1.0, tk.END)
+                self.text_input.insert(tk.END, content)
+                self.status_var.set("File imported successfully")
             except Exception as e:
                 messagebox.showerror("Error", f"Error importing: {str(e)}")
-
-
-def show_installation_help():
-    """Show installation help dialog"""
-    help_text = """
-ACE Logical Inference Calculator - Installation Guide
-
-REQUIREMENTS:
-1. Python 3.7 or higher
-2. SWI-Prolog
-3. janus_swi Python package
-
-INSTALLATION STEPS:
-
-1. Install SWI-Prolog:
-   • Windows: Download from https://www.swi-prolog.org/download/stable
-   • Ubuntu/Debian: sudo apt-get install swi-prolog
-   • macOS: brew install swi-prolog
-   • Fedora/CentOS: sudo yum install pl
-
-2. Install Python dependencies:
-   pip install janus_swi
-
-3. Verify installation:
-   • Open terminal/command prompt
-   • Type: swipl --version
-   • Should show SWI-Prolog version
-
-4. Run the program:
-   python ace_calculator_prolog.py
-
-USAGE EXAMPLES:
-
-Facts:
-• John is a person.
-• Mary likes chocolate.
-• Bob has age 25.
-
-Rules:
-• X is happy if X likes chocolate.
-• X is adult if X has age Y and Y > 18.
-
-Queries:
-• Is John happy?
-• Who is happy?
-• What does Mary like?
-
-TROUBLESHOOTING:
-
-• If you get "janus_swi not found":
-  pip install janus_swi
-
-• If you get "SWI-Prolog not found":
-  Make sure SWI-Prolog is installed and in your PATH
-
-• If queries don't work:
-  Check that your ACE syntax is correct
-    """
-
-    help_window = tk.Toplevel()
-    help_window.title("Installation & Usage Help")
-    help_window.geometry("600x500")
-
-    text_widget = scrolledtext.ScrolledText(help_window, wrap=tk.WORD)
-    text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-    text_widget.insert(tk.END, help_text)
-    text_widget.config(state=tk.DISABLED)
 
 
 def main():
     """Main application entry point"""
     root = tk.Tk()
+    root.resizable(True, True)
 
-    # Add help menu
-    menubar = tk.Menu(root)
-    root.config(menu=menubar)
-
-    help_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Help", menu=help_menu)
-    help_menu.add_command(label="Installation Help", command=show_installation_help)
-    help_menu.add_separator()
-    help_menu.add_command(label="About", command=lambda: messagebox.showinfo(
-        "About",
-        "ACE Logical Inference Calculator\n"
-        "Version 2.0 with Prolog Backend\n\n"
-        "Uses SWI-Prolog through janus_swi for\n"
-        "robust logical inference and reasoning.\n\n"
-        "Supports Attempto Controlled English\n"
-        "for natural language logical statements."
-    ))
-
-    app = ACECalculatorApp(root)
+    app = ModernACECalculator(root)
 
     # Show startup message if Prolog is not available
     if not PROLOG_AVAILABLE:
@@ -711,8 +617,7 @@ def main():
             "Setup Required",
             "For full functionality, please install:\n\n"
             "1. SWI-Prolog (https://www.swi-prolog.org/)\n"
-            "2. janus_swi: pip install janus_swi\n\n"
-            "Click Help → Installation Help for detailed instructions."
+            "2. janus_swi: pip install janus_swi"
         ))
 
     root.mainloop()
