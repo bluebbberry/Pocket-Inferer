@@ -396,11 +396,11 @@ What does John like?"""
                                 '#e67e22', 2, 2)
 
         # Row 4: Actions
-        action_frame = tk.Frame(button_panel, bg=self.colors['card'])
-        action_frame.pack(pady=(10, 15))
+        # action_frame = tk.Frame(button_panel, bg=self.colors['card'])
+        # action_frame.pack(pady=(10, 15))
 
-        self.create_calc_button(action_frame, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 0, width=15)
-        self.create_calc_button(action_frame, "CLEAR", self.clear_all, '#e74c3c', 0, 1, width=15)
+        self.create_calc_button(grid_container, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 3, width=15)
+        self.create_calc_button(grid_container, "CLEAR", self.clear_all, '#e74c3c', 2, 3, width=15)
         # self.create_calc_button(action_frame, "CLEAR TEXT", self.clear_text, '#f39c12', 0, 2, width=15)
 
     def create_calc_button(self, parent, text, command, color, row, col, width=12):
