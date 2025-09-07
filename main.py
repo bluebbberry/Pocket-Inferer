@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACE Logical Inference Calculator - Fixed Version
+ACE Logical Inference Calculator
 A redesigned desktop application with calculator-like interface for logical reasoning
 Combines free-form text input with tagged template insertion
 """
@@ -281,7 +281,7 @@ class ModernACECalculator:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logic Calculator - Fixed")
+        self.root.title("ACE Logic Calculator")
         self.root.geometry("900x800")
         self.root.configure(bg='#2c3e50')
 
