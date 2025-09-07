@@ -385,13 +385,13 @@ What does John like?"""
         #                         '#9b59b6', 1, 2)
 
         # Row 3: Question templates
-        self.create_calc_button(grid_container, "WHO IS?",
+        self.create_calc_button(grid_container, "WHO IS ...?",
                                 lambda: self.insert_template("Who is <PROPERTY>?\n"),
                                 '#e67e22', 2, 0)
-        self.create_calc_button(grid_container, "WHAT LIKES?",
+        self.create_calc_button(grid_container, "WHAT LIKES ...?",
                                 lambda: self.insert_template("What does <SUBJECT> like?\n"),
                                 '#e67e22', 2, 1)
-        self.create_calc_button(grid_container, "IS HAPPY?",
+        self.create_calc_button(grid_container, "IS ... HAPPY?",
                                 lambda: self.insert_template("Is <SUBJECT> happy?\n"),
                                 '#e67e22', 2, 2)
 
@@ -400,8 +400,8 @@ What does John like?"""
         action_frame.pack(pady=(10, 15))
 
         self.create_calc_button(action_frame, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 0, width=15)
-        self.create_calc_button(action_frame, "CLEAR ALL", self.clear_all, '#e74c3c', 0, 1, width=15)
-        self.create_calc_button(action_frame, "CLEAR TEXT", self.clear_text, '#f39c12', 0, 2, width=15)
+        self.create_calc_button(action_frame, "CLEAR", self.clear_all, '#e74c3c', 0, 1, width=15)
+        # self.create_calc_button(action_frame, "CLEAR TEXT", self.clear_text, '#f39c12', 0, 2, width=15)
 
     def create_calc_button(self, parent, text, command, color, row, col, width=12):
         """Create a calculator-style button"""
