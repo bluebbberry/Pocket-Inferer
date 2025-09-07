@@ -7,273 +7,114 @@ import re
 from typing import Optional
 
 
-class ACEToPrologParser:
-    """
-    Converts Attempto Controlled English (ACE) statements to Prolog format.
 
-    This parser handles facts, rules, and queries, converting them from natural
-    language ACE syntax to formal Prolog predicates.
-    """
+class ACEToPrologParser:
+    """Enhanced ACE to Prolog parser with better rule handling"""
 
     def __init__(self):
-        """Initialize the parser with regex patterns for different ACE constructs."""
-        # Fact patterns for basic statements
-        self.fact_patterns = {
-            'is_a': r'^([A-Za-z][a-zA-Z0-9_]*) is a ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'is': r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'likes': r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'has_property': r'^([A-Za-z][a-zA-Z0-9_]*) has ([a-zA-Z][a-zA-Z0-9_-]*) ([a-zA-Z0-9_-]+)$'
-        }
+        self.entity_map = {}
+        self.next_entity_id = 1
 
-        # Expression patterns for variables and entities
-        self.expression_patterns = {
-            'var_is': r'^([A-Za-z]) is ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'var_likes': r'^([A-Za-z]) likes ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'entity_is': r'^([A-Za-z][a-zA-Z0-9_]*) is ([a-zA-Z][a-zA-Z0-9_]*)$',
-            'entity_likes': r'^([A-Za-z][a-zA-Z0-9_]*) likes ([a-zA-Z][a-zA-Z0-9_]*)$'
-        }
+    def normalize_entity(self, entity: str) -> str:
+        """Normalize entity names for Prolog"""
+        entity = entity.strip().lower()
+        # Replace spaces and hyphens with underscores
+        entity = re.sub(r'[\s\-]+', '_', entity)
+        # Ensure it starts with lowercase letter
+        if entity and entity[0].isupper():
+            entity = entity[0].lower() + entity[1:]
+        return entity
 
-    def ace_to_prolog_fact(self, ace_fact: str) -> Optional[str]:
-        """
-        Convert an ACE fact to Prolog format.
-
-        Args:
-            ace_fact: The ACE fact string (e.g., "John is a person.")
-
-        Returns:
-            Prolog fact string or None if conversion fails
-
-        Examples:
-            "John is a person." -> "person(john)"
-            "Mary likes chocolate." -> "likes(mary, chocolate)"
-            "Bob has age 25." -> "has_property(bob, age, 25)"
-        """
+    def ace_to_prolog_fact(self, ace_fact: str) -> str | None:
+        """Convert ACE fact to Prolog fact"""
         ace_fact = ace_fact.strip().rstrip('.')
 
-        # Handle "X is a Y" pattern
-        match = re.match(self.fact_patterns['is_a'], ace_fact, re.IGNORECASE)
-        if match:
-            entity, category = match.groups()
-            return f"{category.lower()}({entity.lower()})"
+        # Pattern: X is a person
+        if re.match(r'^(.+) is a ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact):
+            match = re.match(r'^(.+) is a ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            category = self.normalize_entity(match.group(2))
+            return f"{category}({entity})"
 
-        # Handle "X is Y" pattern (property/adjective)
-        match = re.match(self.fact_patterns['is'], ace_fact, re.IGNORECASE)
-        if match:
-            entity, property_name = match.groups()
-            return f"{property_name.lower()}({entity.lower()})"
+        # Pattern: X is Y (property)
+        elif re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact):
+            match = re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            property_name = self.normalize_entity(match.group(2))
+            return f"{property_name}({entity})"
 
-        # Handle "X likes Y" pattern
-        match = re.match(self.fact_patterns['likes'], ace_fact, re.IGNORECASE)
-        if match:
-            entity, object_name = match.groups()
-            return f"likes({entity.lower()}, {object_name.lower()})"
+        # Pattern: X likes Y
+        elif re.match(r'^(.+) likes (.+)', ace_fact):
+            match = re.match(r'^(.+) likes (.+)', ace_fact)
+            entity1 = self.normalize_entity(match.group(1))
+            entity2 = self.normalize_entity(match.group(2))
+            return f"likes({entity1}, {entity2})"
 
-        # Handle "X has Y Z" pattern (properties with values)
-        match = re.match(self.fact_patterns['has_property'], ace_fact, re.IGNORECASE)
-        if match:
-            entity, property_name, value = match.groups()
-            # Clean property name (replace hyphens with underscores)
-            clean_property = property_name.lower().replace('-', '_')
-            return f"has_property({entity.lower()}, {clean_property}, {value.lower()})"
+        # Pattern: X has Y Z
+        elif re.match(r'^(.+) has (.+) (.+)', ace_fact):
+            match = re.match(r'^(.+) has (.+) (.+)', ace_fact)
+            entity = self.normalize_entity(match.group(1))
+            property_name = self.normalize_entity(match.group(2))
+            value = self.normalize_entity(match.group(3))
+            return f"has_property({entity}, {property_name}, {value})"
 
         return None
 
-    def ace_to_prolog_rule(self, ace_rule: str) -> Optional[str]:
-        """
-        Convert an ACE rule to Prolog format.
-
-        Args:
-            ace_rule: The ACE rule string (e.g., "X is happy if X likes chocolate.")
-
-        Returns:
-            Prolog rule string or None if conversion fails
-
-        Examples:
-            "X is happy if X likes chocolate." -> "happy(X) :- likes(X, chocolate)"
-        """
+    def ace_to_prolog_rule(self, ace_rule: str) -> str | None:
+        """Convert ACE rule to Prolog rule"""
         ace_rule = ace_rule.strip().rstrip('.')
 
-        # Handle "... if ..." pattern
+        # Pattern: X is Y if Z
         if ' if ' in ace_rule.lower():
-            parts = ace_rule.split(' if ', 1)
-            if len(parts) != 2:
-                return None
+            parts = re.split(r'\s+if\s+', ace_rule, flags=re.IGNORECASE)
+            if len(parts) == 2:
+                conclusion = parts[0].strip()
+                condition = parts[1].strip()
 
-            conclusion_part = parts[0].strip()
-            condition_part = parts[1].strip()
+                # Parse conclusion
+                if re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', conclusion):
+                    match = re.match(r'^(.+) is ([a-zA-Z][a-zA-Z0-9_]*)', conclusion)
+                    var_name = match.group(1).upper()  # Use uppercase for variables
+                    property_name = self.normalize_entity(match.group(2))
+                    conclusion_prolog = f"{property_name}({var_name})"
+                else:
+                    return None
 
-            # Convert both parts to Prolog predicates
-            conclusion_prolog = self._convert_ace_expression_to_prolog(conclusion_part)
-            condition_prolog = self._convert_ace_expression_to_prolog(condition_part)
-
-            if conclusion_prolog and condition_prolog:
-                return f"{conclusion_prolog} :- {condition_prolog}"
-
-        # Handle "If ... then ..." pattern
-        elif ace_rule.lower().startswith('if ') and ' then ' in ace_rule.lower():
-            parts = ace_rule.split(' then ', 1)
-            if len(parts) != 2:
-                return None
-
-            condition_part = parts[0][3:].strip()  # Remove "if "
-            conclusion_part = parts[1].strip()
-
-            # Convert both parts to Prolog predicates
-            conclusion_prolog = self._convert_ace_expression_to_prolog(conclusion_part)
-            condition_prolog = self._convert_ace_expression_to_prolog(condition_part)
-
-            if conclusion_prolog and condition_prolog:
-                return f"{conclusion_prolog} :- {condition_prolog}"
+                # Parse condition
+                condition_prolog = self._parse_condition(condition, var_name)
+                if condition_prolog:
+                    return f"{conclusion_prolog} :- {condition_prolog}"
 
         return None
 
-    def _convert_ace_expression_to_prolog(self, expression: str) -> Optional[str]:
-        """
-        Convert an ACE expression (part of a rule) to Prolog predicate.
+    def _parse_condition(self, condition: str, var_name: str) -> str | None:
+        """Parse condition part of a rule"""
+        # Pattern: X likes Y
+        if re.match(r'^(.+) likes (.+)', condition):
+            match = re.match(r'^(.+) likes (.+)', condition)
+            subject = match.group(1).strip()
+            object_name = self.normalize_entity(match.group(2))
 
-        Args:
-            expression: The ACE expression string
+            # Replace subject with variable if it matches
+            if subject.upper() == var_name:
+                return f"likes({var_name}, {object_name})"
+            else:
+                subject_norm = self.normalize_entity(subject)
+                return f"likes({subject_norm}, {object_name})"
 
-        Returns:
-            Prolog predicate string or None if conversion fails
-        """
-        expression = expression.strip()
+        # Pattern: X is Y
+        elif re.match(r'^(.+) is (.+)', condition):
+            match = re.match(r'^(.+) is (.+)', condition)
+            subject = match.group(1).strip()
+            property_name = self.normalize_entity(match.group(2))
 
-        # Handle "X is Y" pattern with variables
-        match = re.match(self.expression_patterns['var_is'], expression, re.IGNORECASE)
-        if match:
-            var, property_name = match.groups()
-            return f"{property_name.lower()}({var.upper()})"
-
-        # Handle "X likes Y" pattern with variables
-        match = re.match(self.expression_patterns['var_likes'], expression, re.IGNORECASE)
-        if match:
-            var, object_name = match.groups()
-            return f"likes({var.upper()}, {object_name.lower()})"
-
-        # Handle "X is Y" pattern with specific entities
-        match = re.match(self.expression_patterns['entity_is'], expression, re.IGNORECASE)
-        if match:
-            entity, property_name = match.groups()
-            return f"{property_name.lower()}({entity.lower()})"
-
-        # Handle "X likes Y" pattern with specific entities
-        match = re.match(self.expression_patterns['entity_likes'], expression, re.IGNORECASE)
-        if match:
-            entity, object_name = match.groups()
-            return f"likes({entity.lower()}, {object_name.lower()})"
+            if subject.upper() == var_name:
+                return f"{property_name}({var_name})"
+            else:
+                subject_norm = self.normalize_entity(subject)
+                return f"{property_name}({subject_norm})"
 
         return None
-
-    def ace_query_to_prolog(self, ace_query: str) -> Optional[str]:
-        """
-        Convert an ACE query to Prolog query format.
-
-        Args:
-            ace_query: The ACE query string (e.g., "Is John happy?")
-
-        Returns:
-            Prolog query string or None if conversion fails
-
-        Examples:
-            "Is John happy?" -> "happy(john)"
-            "Who is happy?" -> "happy(X)"
-            "What does John like?" -> "likes(john, X)"
-        """
-        ace_query = ace_query.strip().rstrip('?')
-
-        # Handle "Is X Y?" queries
-        if ace_query.lower().startswith('is '):
-            query_content = ace_query[3:].strip()
-            return self._convert_ace_expression_to_prolog(query_content)
-
-        # Handle "Are X Y?" queries (plural form)
-        elif ace_query.lower().startswith('are '):
-            query_content = ace_query[4:].strip()
-            # Convert "are" to "is" for processing
-            if query_content.endswith('s'):
-                query_content = query_content[:-1]  # Remove plural 's'
-            return self._convert_ace_expression_to_prolog(query_content)
-
-        # Handle "Who is Y?" queries
-        elif ace_query.lower().startswith('who is '):
-            property_name = ace_query[7:].strip().lower()
-            return f"{property_name}(X)"
-
-        # Handle "What does X like?" queries
-        elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like$', ace_query.lower()):
-            match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like$', ace_query.lower())
-            entity = match.group(1)
-            return f"likes({entity.lower()}, X)"
-
-        # Handle "Does X like Y?" queries
-        elif ace_query.lower().startswith('does '):
-            # Convert "Does X like Y" to "X likes Y" and process
-            query_without_does = ace_query[5:].strip()
-            return self._convert_ace_expression_to_prolog(query_without_does)
-
-        return None
-
-    def get_supported_patterns(self) -> dict:
-        """
-        Get information about supported ACE patterns.
-
-        Returns:
-            Dictionary describing supported patterns and examples
-        """
-        return {
-            'facts': {
-                'is_a': {
-                    'pattern': 'Entity is a Category.',
-                    'example': 'John is a person.',
-                    'prolog': 'person(john)'
-                },
-                'is': {
-                    'pattern': 'Entity is Property.',
-                    'example': 'John is happy.',
-                    'prolog': 'happy(john)'
-                },
-                'likes': {
-                    'pattern': 'Entity likes Object.',
-                    'example': 'Mary likes chocolate.',
-                    'prolog': 'likes(mary, chocolate)'
-                },
-                'has_property': {
-                    'pattern': 'Entity has Property Value.',
-                    'example': 'Bob has age 25.',
-                    'prolog': 'has_property(bob, age, 25)'
-                }
-            },
-            'rules': {
-                'if_then': {
-                    'pattern': 'Conclusion if Condition.',
-                    'example': 'X is happy if X likes chocolate.',
-                    'prolog': 'happy(X) :- likes(X, chocolate)'
-                },
-                'then_if': {
-                    'pattern': 'If Condition then Conclusion.',
-                    'example': 'If X likes chocolate then X is happy.',
-                    'prolog': 'happy(X) :- likes(X, chocolate)'
-                }
-            },
-            'queries': {
-                'is_question': {
-                    'pattern': 'Is Entity Property?',
-                    'example': 'Is John happy?',
-                    'prolog': 'happy(john)'
-                },
-                'who_question': {
-                    'pattern': 'Who is Property?',
-                    'example': 'Who is happy?',
-                    'prolog': 'happy(X)'
-                },
-                'what_likes': {
-                    'pattern': 'What does Entity like?',
-                    'example': 'What does John like?',
-                    'prolog': 'likes(john, X)'
-                }
-            }
-        }
 
 
 if __name__ == "__main__":
