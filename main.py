@@ -340,8 +340,7 @@ class ModernACECalculator:
         self.text_input.pack(fill=tk.BOTH, expand=True)
 
         # Add example text
-        example_text = """# Example ACE statements (you can edit/delete these):
-John is a person.
+        example_text = """John is a person.
 Mary is a person.
 John likes chocolate.
 X is happy if X likes chocolate.
