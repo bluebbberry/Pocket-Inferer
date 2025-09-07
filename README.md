@@ -33,4 +33,4 @@ main.py
 
 Here a short demo video:
 
-<iframe title="ACE Logic Calculator - Demo" width="560" height="315" src="https://makertube.net/videos/embed/uGJAWmF9nFj9tARrKS4NpF" frameborder="0" allowfullscreen="" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+[https://makertube.net/w/uGJAWmF9nFj9tARrKS4NpF](https://makertube.net/w/uGJAWmF9nFj9tARrKS4NpF)
