@@ -293,7 +293,7 @@ class FileExplorer:
 
     def __init__(self, parent, callback):
         self.callback = callback
-        self.current_directory = os.getcwd()
+        self.current_directory = os.getcwd() + "/programming_mode_home"
         self.open_files = {}  # path -> ProjectFile
 
         # Create main frame
