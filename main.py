@@ -600,7 +600,7 @@ class EnhancedACECalculator:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logic Calculator - Enhanced")
+        self.root.title("ACE Logic Calculator")
         self.root.geometry("1200x900")
         self.root.configure(bg='#2c3e50')
 
@@ -658,7 +658,7 @@ class EnhancedACECalculator:
 
         self.mode_button = tk.Button(
             mode_frame,
-            text="📝 Programming Mode",
+            text="Programming Mode",
             command=self.toggle_mode,
             bg=self.colors['warning'],
             fg='white',
@@ -691,7 +691,7 @@ class EnhancedACECalculator:
 
         self.mode_button = tk.Button(
             mode_frame,
-            text="🧮 Calculator Mode",
+            text="Exit Programming Mode",
             command=self.toggle_mode,
             bg=self.colors['accent'],
             fg='white',
@@ -704,7 +704,7 @@ class EnhancedACECalculator:
         self.mode_button.pack(side='right')
 
         # Title
-        title_label = ttk.Label(mode_frame, text="ACE Logic IDE", style='Title.TLabel')
+        title_label = ttk.Label(mode_frame, text="Programming Mode", style='Title.TLabel')
         title_label.pack(side='left')
 
         # Create IDE layout
@@ -798,7 +798,7 @@ class EnhancedACECalculator:
             self.root.title("ACE Logic Calculator - Programming Mode")
         else:
             self.setup_calculator_mode()
-            self.root.title("ACE Logic Calculator - Calculator Mode")
+            self.root.title("ACE Logic Calculator")
 
     def execute_ide_code(self):
         """Execute code from IDE editor"""
@@ -891,7 +891,7 @@ class EnhancedACECalculator:
         status_frame.pack(fill=tk.X, pady=(15, 0))
 
         self.ide_status_var = tk.StringVar()
-        status_text = "IDE Ready - Prolog Available" if PROLOG_AVAILABLE else "IDE Ready - Prolog NOT Available"
+        status_text = "Programming Mode Ready - Prolog Available" if PROLOG_AVAILABLE else "IDE Ready - Prolog NOT Available"
         self.ide_status_var.set(status_text)
 
         status_label = tk.Label(status_frame, textvariable=self.ide_status_var,
