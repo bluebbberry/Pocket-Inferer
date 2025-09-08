@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-ACE Logical Inference Calculator
+ACE Logical Inference Calculator - Enhanced with IDE Mode
 A redesigned desktop application with calculator-like interface for logical reasoning
 Combines free-form text input with tagged template insertion
+Now includes IDE-like programming mode with file browser and enhanced code editing
 """
 
 import tkinter as tk
@@ -10,6 +11,7 @@ from tkinter import ttk, messagebox, scrolledtext, filedialog
 import csv
 import json
 import re
+import os
 from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +34,16 @@ class ACEStatement:
 
     def __str__(self):
         return self.content
+
+
+@dataclass
+class ProjectFile:
+    """Represents a project file"""
+    name: str
+    path: str
+    content: str = ""
+    is_modified: bool = False
+
 
 class ACEParser:
     """Enhanced ACE parser for logical statements"""
@@ -276,14 +288,324 @@ class CSVProcessor:
         return facts
 
 
-class ModernACECalculator:
-    """Modern calculator-style ACE interface with hybrid input approach"""
+class FileExplorer:
+    """File explorer widget for IDE mode"""
+
+    def __init__(self, parent, callback):
+        self.callback = callback
+        self.current_directory = os.getcwd()
+        self.open_files = {}  # path -> ProjectFile
+
+        # Create main frame
+        self.frame = ttk.Frame(parent)
+
+        # Toolbar
+        toolbar = ttk.Frame(self.frame)
+        toolbar.pack(fill='x', padx=5, pady=5)
+
+        ttk.Button(toolbar, text="📁", command=self.open_folder, width=3).pack(side='left', padx=2)
+        ttk.Button(toolbar, text="📄", command=self.new_file, width=3).pack(side='left', padx=2)
+        ttk.Button(toolbar, text="💾", command=self.save_current, width=3).pack(side='left', padx=2)
+
+        # Directory path
+        self.path_var = tk.StringVar(value=self.current_directory)
+        path_frame = ttk.Frame(self.frame)
+        path_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(path_frame, text="Path:").pack(side='left')
+        ttk.Entry(path_frame, textvariable=self.path_var, state='readonly').pack(side='left', fill='x', expand=True,
+                                                                                 padx=5)
+
+        # File tree
+        tree_frame = ttk.Frame(self.frame)
+        tree_frame.pack(fill='both', expand=True, padx=5, pady=5)
+
+        self.tree = ttk.Treeview(tree_frame, show='tree')
+        scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Bind events
+        self.tree.bind('<Double-1>', self.on_double_click)
+
+        # Populate tree
+        self.refresh_tree()
+
+    def refresh_tree(self):
+        """Refresh the file tree"""
+        self.tree.delete(*self.tree.get_children())
+
+        try:
+            for item in sorted(os.listdir(self.current_directory)):
+                item_path = os.path.join(self.current_directory, item)
+                if os.path.isdir(item_path):
+                    self.tree.insert('', 'end', text=f"📁 {item}", values=[item_path])
+                elif item.endswith(('.ace', '.txt', '.pl', '.py')):
+                    icon = "📄" if item not in [os.path.basename(f) for f in self.open_files.keys()] else "📝"
+                    self.tree.insert('', 'end', text=f"{icon} {item}", values=[item_path])
+        except PermissionError:
+            pass
+
+    def on_double_click(self, event):
+        """Handle double click on tree item"""
+        item = self.tree.selection()[0]
+        path = self.tree.item(item)['values'][0]
+
+        if os.path.isdir(path):
+            self.current_directory = path
+            self.path_var.set(path)
+            self.refresh_tree()
+        else:
+            self.open_file(path)
+
+    def open_file(self, path):
+        """Open a file for editing"""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            file_obj = ProjectFile(
+                name=os.path.basename(path),
+                path=path,
+                content=content
+            )
+
+            self.open_files[path] = file_obj
+            self.callback('open_file', file_obj)
+            self.refresh_tree()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open file: {str(e)}")
+
+    def open_folder(self):
+        """Open folder dialog"""
+        folder = filedialog.askdirectory(initialdir=self.current_directory)
+        if folder:
+            self.current_directory = folder
+            self.path_var.set(folder)
+            self.refresh_tree()
+
+    def new_file(self):
+        """Create new file"""
+        filename = tk.simpledialog.askstring("New File", "Enter filename:", initialvalue="untitled.ace")
+        if filename:
+            path = os.path.join(self.current_directory, filename)
+            file_obj = ProjectFile(
+                name=filename,
+                path=path,
+                content="# New ACE Logic File\n\n",
+                is_modified=True
+            )
+            self.open_files[path] = file_obj
+            self.callback('open_file', file_obj)
+            self.refresh_tree()
+
+    def save_current(self):
+        """Save current file"""
+        self.callback('save_file', None)
+
+
+class CodeEditor:
+    """Enhanced code editor with syntax highlighting and line numbers"""
+
+    def __init__(self, parent):
+        self.frame = ttk.Frame(parent)
+
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.frame)
+        self.notebook.pack(fill='both', expand=True)
+
+        self.open_tabs = {}  # file_path -> tab_frame
+        self.current_file = None
+
+        # Bind tab change event
+        self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_change)
+
+    def open_file(self, file_obj: ProjectFile):
+        """Open file in new tab"""
+        if file_obj.path in self.open_tabs:
+            # Switch to existing tab
+            tab_frame = self.open_tabs[file_obj.path]
+            self.notebook.select(tab_frame)
+            return
+
+        # Create new tab
+        tab_frame = ttk.Frame(self.notebook)
+
+        # Add line numbers frame
+        numbers_frame = tk.Frame(tab_frame, width=50, bg='#f0f0f0')
+        numbers_frame.pack(side='left', fill='y')
+
+        self.line_numbers = tk.Text(
+            numbers_frame,
+            width=4,
+            padx=3,
+            takefocus=0,
+            border=0,
+            state='disabled',
+            bg='#f0f0f0',
+            font=('Consolas', 10)
+        )
+        self.line_numbers.pack(fill='y', expand=True)
+
+        # Create text widget
+        text_widget = scrolledtext.ScrolledText(
+            tab_frame,
+            font=('Consolas', 11),
+            wrap='none',
+            undo=True,
+            maxundo=-1
+        )
+        text_widget.pack(side='right', fill='both', expand=True)
+
+        # Insert content
+        text_widget.insert('1.0', file_obj.content)
+
+        # Configure tags for syntax highlighting
+        self.setup_syntax_highlighting(text_widget)
+
+        # Bind events
+        text_widget.bind('<KeyRelease>', lambda e: self.update_line_numbers(text_widget))
+        text_widget.bind('<Button-1>', lambda e: self.update_line_numbers(text_widget))
+        text_widget.bind('<MouseWheel>', lambda e: self.sync_scroll(text_widget, e))
+
+        # Store references
+        tab_frame.text_widget = text_widget
+        tab_frame.file_obj = file_obj
+        tab_frame.line_numbers = self.line_numbers
+
+        # Add tab to notebook
+        tab_name = file_obj.name + ("*" if file_obj.is_modified else "")
+        self.notebook.add(tab_frame, text=tab_name)
+        self.open_tabs[file_obj.path] = tab_frame
+
+        # Select the new tab
+        self.notebook.select(tab_frame)
+        self.current_file = file_obj
+
+        # Update line numbers
+        self.update_line_numbers(text_widget)
+
+    def setup_syntax_highlighting(self, text_widget):
+        """Setup basic syntax highlighting for ACE"""
+        # Configure tags
+        text_widget.tag_configure('keyword', foreground='blue', font=('Consolas', 11, 'bold'))
+        text_widget.tag_configure('string', foreground='green')
+        text_widget.tag_configure('comment', foreground='gray', font=('Consolas', 11, 'italic'))
+        text_widget.tag_configure('entity', foreground='purple', font=('Consolas', 11, 'bold'))
+
+        def highlight_syntax(event=None):
+            content = text_widget.get('1.0', 'end')
+
+            # Clear existing tags
+            for tag in ['keyword', 'string', 'comment', 'entity']:
+                text_widget.tag_remove(tag, '1.0', 'end')
+
+            # Highlight keywords
+            keywords = ['is', 'are', 'if', 'then', 'who', 'what', 'does', 'like', 'has', 'have']
+            for keyword in keywords:
+                start = '1.0'
+                while True:
+                    pos = text_widget.search(f'\\b{keyword}\\b', start, 'end', regexp=True, nocase=True)
+                    if not pos:
+                        break
+                    end_pos = f"{pos}+{len(keyword)}c"
+                    text_widget.tag_add('keyword', pos, end_pos)
+                    start = end_pos
+
+            # Highlight comments
+            start = '1.0'
+            while True:
+                pos = text_widget.search('#.*', start, 'end', regexp=True)
+                if not pos:
+                    break
+                line_end = f"{pos} lineend"
+                text_widget.tag_add('comment', pos, line_end)
+                start = f"{pos} linestart +1line"
+
+            # Highlight entities (capitalized words)
+            start = '1.0'
+            while True:
+                pos = text_widget.search('[A-Z][a-zA-Z0-9_-]*', start, 'end', regexp=True)
+                if not pos:
+                    break
+                end_pos = text_widget.index(f"{pos} wordend")
+                text_widget.tag_add('entity', pos, end_pos)
+                start = end_pos
+
+        # Bind highlighting
+        text_widget.bind('<KeyRelease>', highlight_syntax)
+        text_widget.after(100, highlight_syntax)
+
+    def update_line_numbers(self, text_widget):
+        """Update line numbers"""
+        if not hasattr(self, 'line_numbers'):
+            return
+
+        line_count = int(text_widget.index('end').split('.')[0])
+
+        self.line_numbers.config(state='normal')
+        self.line_numbers.delete('1.0', 'end')
+
+        for i in range(1, line_count):
+            self.line_numbers.insert('end', f"{i:>3}\n")
+
+        self.line_numbers.config(state='disabled')
+
+    def sync_scroll(self, text_widget, event):
+        """Sync scrolling between text and line numbers"""
+        if hasattr(self, 'line_numbers'):
+            self.line_numbers.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def on_tab_change(self, event):
+        """Handle tab change"""
+        selected_tab = self.notebook.select()
+        if selected_tab:
+            tab_frame = self.notebook.nametowidget(selected_tab)
+            if hasattr(tab_frame, 'file_obj'):
+                self.current_file = tab_frame.file_obj
+
+    def get_current_content(self):
+        """Get content of current tab"""
+        selected_tab = self.notebook.select()
+        if selected_tab:
+            tab_frame = self.notebook.nametowidget(selected_tab)
+            if hasattr(tab_frame, 'text_widget'):
+                return tab_frame.text_widget.get('1.0', 'end-1c')
+        return ""
+
+    def save_current_file(self):
+        """Save current file"""
+        selected_tab = self.notebook.select()
+        if selected_tab:
+            tab_frame = self.notebook.nametowidget(selected_tab)
+            if hasattr(tab_frame, 'file_obj') and hasattr(tab_frame, 'text_widget'):
+                content = tab_frame.text_widget.get('1.0', 'end-1c')
+                try:
+                    with open(tab_frame.file_obj.path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    tab_frame.file_obj.is_modified = False
+                    # Update tab title
+                    tab_index = self.notebook.index(selected_tab)
+                    self.notebook.tab(tab_index, text=tab_frame.file_obj.name)
+                    return True
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not save file: {str(e)}")
+        return False
+
+
+class EnhancedACECalculator:
+    """Enhanced ACE Calculator with IDE mode"""
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logic Calculator")
-        self.root.geometry("900x800")
+        self.root.title("ACE Logic Calculator - Enhanced")
+        self.root.geometry("1200x900")
         self.root.configure(bg='#2c3e50')
+
+        # Mode state
+        self.is_ide_mode = False
 
         # Style configuration
         self.setup_styles()
@@ -320,19 +642,266 @@ class ModernACECalculator:
                              font=('Arial', 11, 'bold'))
 
     def setup_ui(self):
-        """Setup the modern calculator interface"""
+        """Setup the main interface"""
         # Main container
-        main_container = tk.Frame(self.root, bg=self.colors['bg'])
-        main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        self.main_container = tk.Frame(self.root, bg=self.colors['bg'])
+        self.main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
-        # Create main sections
-        self.setup_results_section(main_container)
-        self.setup_input_section(main_container)
-        self.setup_button_section(main_container)
-        self.setup_status_bar(main_container)
+        # Create calculator mode UI
+        self.setup_calculator_mode()
 
-    def setup_input_section(self, parent):
-        """Setup main text input area"""
+    def setup_calculator_mode(self):
+        """Setup calculator-like interface"""
+        # Mode switcher
+        mode_frame = tk.Frame(self.main_container, bg=self.colors['bg'])
+        mode_frame.pack(fill='x', pady=(0, 15))
+
+        self.mode_button = tk.Button(
+            mode_frame,
+            text="📝 Programming Mode",
+            command=self.toggle_mode,
+            bg=self.colors['warning'],
+            fg='white',
+            font=('Arial', 10, 'bold'),
+            relief='raised',
+            bd=2,
+            padx=20,
+            pady=5
+        )
+        self.mode_button.pack(side='right')
+
+        # Title
+        title_label = ttk.Label(mode_frame, text="ACE Logic Calculator", style='Title.TLabel')
+        title_label.pack(side='left')
+
+        # Create calculator sections
+        self.calc_container = tk.Frame(self.main_container, bg=self.colors['bg'])
+        self.calc_container.pack(fill=tk.BOTH, expand=True)
+
+        self.setup_calc_results_section(self.calc_container)
+        self.setup_calc_input_section(self.calc_container)
+        self.setup_calc_button_section(self.calc_container)
+        self.setup_calc_status_bar(self.calc_container)
+
+    def setup_ide_mode(self):
+        """Setup IDE-like interface"""
+        # Mode switcher (update)
+        mode_frame = tk.Frame(self.main_container, bg=self.colors['bg'])
+        mode_frame.pack(fill='x', pady=(0, 15))
+
+        self.mode_button = tk.Button(
+            mode_frame,
+            text="🧮 Calculator Mode",
+            command=self.toggle_mode,
+            bg=self.colors['accent'],
+            fg='white',
+            font=('Arial', 10, 'bold'),
+            relief='raised',
+            bd=2,
+            padx=20,
+            pady=5
+        )
+        self.mode_button.pack(side='right')
+
+        # Title
+        title_label = ttk.Label(mode_frame, text="ACE Logic IDE", style='Title.TLabel')
+        title_label.pack(side='left')
+
+        # Create IDE layout
+        self.ide_container = tk.Frame(self.main_container, bg=self.colors['bg'])
+        self.ide_container.pack(fill=tk.BOTH, expand=True)
+
+        # Main paned window
+        main_paned = ttk.PanedWindow(self.ide_container, orient='horizontal')
+        main_paned.pack(fill='both', expand=True)
+
+        # Left panel (File Explorer)
+        left_panel = ttk.Frame(main_paned, width=300)
+        main_paned.add(left_panel, weight=1)
+
+        # File explorer
+        explorer_label = ttk.Label(left_panel, text="Files", style='Subtitle.TLabel')
+        explorer_label.pack(pady=(10, 5))
+
+        self.file_explorer = FileExplorer(left_panel, self.handle_file_action)
+        self.file_explorer.frame.pack(fill='both', expand=True, padx=10, pady=5)
+
+        # Right panel
+        right_panel = ttk.PanedWindow(main_paned, orient='vertical')
+        main_paned.add(right_panel, weight=3)
+
+        # Code editor area
+        editor_frame = ttk.Frame(right_panel)
+        right_panel.add(editor_frame, weight=2)
+
+        editor_label = ttk.Label(editor_frame, text="Editor", style='Subtitle.TLabel')
+        editor_label.pack(pady=(10, 5))
+
+        self.code_editor = CodeEditor(editor_frame)
+        self.code_editor.frame.pack(fill='both', expand=True, padx=10, pady=5)
+
+        # Results panel
+        results_frame = ttk.Frame(right_panel, height=250)
+        right_panel.add(results_frame, weight=1)
+
+        results_label = ttk.Label(results_frame, text="Results & Output", style='Subtitle.TLabel')
+        results_label.pack(pady=(10, 5))
+
+        # Control buttons
+        control_frame = tk.Frame(results_frame, bg=self.colors['card'])
+        control_frame.pack(fill='x', padx=10, pady=5)
+
+        tk.Button(control_frame, text="▶️ Execute", command=self.execute_ide_code,
+                  bg=self.colors['success'], fg='white', font=('Arial', 9, 'bold'),
+                  padx=15, pady=5).pack(side='left', padx=5)
+
+        tk.Button(control_frame, text="💾 Save", command=self.save_current_file,
+                  bg=self.colors['accent'], fg='white', font=('Arial', 9, 'bold'),
+                  padx=15, pady=5).pack(side='left', padx=5)
+
+        tk.Button(control_frame, text="🗑️ Clear Results", command=self.clear_ide_results,
+                  bg=self.colors['danger'], fg='white', font=('Arial', 9, 'bold'),
+                  padx=15, pady=5).pack(side='left', padx=5)
+
+        # Results display
+        self.ide_results_display = scrolledtext.ScrolledText(
+            results_frame,
+            height=10,
+            font=('Consolas', 10),
+            state=tk.DISABLED,
+            bg='#ecf0f1',
+            fg=self.colors['text_dark'],
+            wrap=tk.WORD
+        )
+        self.ide_results_display.pack(fill='both', expand=True, padx=10, pady=(5, 10))
+
+        # Status bar for IDE
+        self.setup_ide_status_bar(self.ide_container)
+
+    def handle_file_action(self, action, file_obj):
+        """Handle file explorer actions"""
+        if action == 'open_file':
+            self.code_editor.open_file(file_obj)
+        elif action == 'save_file':
+            self.save_current_file()
+
+    def toggle_mode(self):
+        """Toggle between calculator and IDE mode"""
+        # Clear current interface
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
+
+        self.is_ide_mode = not self.is_ide_mode
+
+        if self.is_ide_mode:
+            self.setup_ide_mode()
+            self.root.title("ACE Logic Calculator - Programming Mode")
+        else:
+            self.setup_calculator_mode()
+            self.root.title("ACE Logic Calculator - Calculator Mode")
+
+    def execute_ide_code(self):
+        """Execute code from IDE editor"""
+        content = self.code_editor.get_current_content()
+        if not content.strip():
+            messagebox.showwarning("Warning", "No code to execute")
+            return
+
+        try:
+            statements = self.parser.parse_text(content)
+
+            # Clear previous knowledge
+            self.inference_engine.clear()
+
+            # Process statements
+            facts_count = 0
+            rules_count = 0
+            queries = []
+
+            for stmt in statements:
+                if stmt.statement_type == 'fact':
+                    self.inference_engine.add_fact(stmt.content)
+                    facts_count += 1
+                elif stmt.statement_type == 'rule':
+                    self.inference_engine.add_rule(stmt.content)
+                    rules_count += 1
+                elif stmt.statement_type == 'query':
+                    queries.append(stmt)
+
+            # Prepare results
+            results = []
+            results.append(f"=== Execution Results ===")
+            results.append(f"Processed {facts_count} facts and {rules_count} rules")
+            results.append("")
+
+            # Answer queries
+            if queries:
+                results.append("Query Results:")
+                results.append("-" * 40)
+                for query in queries:
+                    answer = self.inference_engine.query(query.content)
+                    results.append(f"Q: {query.content}")
+                    results.append(f"A: {answer}")
+                    results.append("")
+
+            # Show all current facts
+            all_facts = self.inference_engine.get_all_facts()
+            if all_facts:
+                results.append("Current Knowledge Base:")
+                results.append("-" * 40)
+                for fact in all_facts:
+                    results.append(f"  • {fact}")
+                results.append("")
+
+            # Display results
+            self.ide_results_display.config(state=tk.NORMAL)
+            self.ide_results_display.delete(1.0, tk.END)
+            self.ide_results_display.insert(tk.END, "\n".join(results))
+            self.ide_results_display.config(state=tk.DISABLED)
+
+            # Update status
+            if hasattr(self, 'ide_status_var'):
+                self.ide_status_var.set(f"Executed {len(statements)} statements successfully")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error executing code: {str(e)}")
+            if hasattr(self, 'ide_status_var'):
+                self.ide_status_var.set(f"Error: {str(e)}")
+
+    def save_current_file(self):
+        """Save current file in IDE"""
+        if self.code_editor.save_current_file():
+            if hasattr(self, 'ide_status_var'):
+                self.ide_status_var.set("File saved successfully")
+        else:
+            if hasattr(self, 'ide_status_var'):
+                self.ide_status_var.set("No file to save or error occurred")
+
+    def clear_ide_results(self):
+        """Clear IDE results"""
+        self.ide_results_display.config(state=tk.NORMAL)
+        self.ide_results_display.delete(1.0, tk.END)
+        self.ide_results_display.config(state=tk.DISABLED)
+        if hasattr(self, 'ide_status_var'):
+            self.ide_status_var.set("Results cleared")
+
+    def setup_ide_status_bar(self, parent):
+        """Setup status bar for IDE mode"""
+        status_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
+        status_frame.pack(fill=tk.X, pady=(15, 0))
+
+        self.ide_status_var = tk.StringVar()
+        status_text = "IDE Ready - Prolog Available" if PROLOG_AVAILABLE else "IDE Ready - Prolog NOT Available"
+        self.ide_status_var.set(status_text)
+
+        status_label = tk.Label(status_frame, textvariable=self.ide_status_var,
+                                bg=self.colors['card'], fg=self.colors['text'],
+                                font=('Arial', 9), anchor='w')
+        status_label.pack(fill=tk.X, padx=10, pady=5)
+
+    # Original calculator mode methods
+    def setup_calc_input_section(self, parent):
+        """Setup main text input area for calculator mode"""
         input_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         input_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
@@ -381,7 +950,7 @@ What does John like?"""
 
         self.text_input.insert(tk.END, example_text)
 
-    def setup_button_section(self, parent):
+    def setup_calc_button_section(self, parent):
         """Setup calculator-style button panel"""
         button_panel = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         button_panel.pack(fill=tk.X, pady=(0, 15))
@@ -433,8 +1002,8 @@ What does John like?"""
                         activebackground=color, activeforeground='white')
         btn.pack(side=tk.LEFT, padx=2)
 
-    def setup_results_section(self, parent):
-        """Setup results display"""
+    def setup_calc_results_section(self, parent):
+        """Setup results display for calculator mode"""
         results_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         results_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -451,8 +1020,8 @@ What does John like?"""
         )
         self.results_display.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
 
-    def setup_status_bar(self, parent):
-        """Setup status bar"""
+    def setup_calc_status_bar(self, parent):
+        """Setup status bar for calculator mode"""
         status_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         status_frame.pack(fill=tk.X, pady=(15, 0))
 
@@ -484,7 +1053,7 @@ What does John like?"""
         self.status_var.set(f"Template inserted: {template.strip()}")
 
     def execute_statements(self):
-        """Execute all statements in the text box"""
+        """Execute all statements in the text box (calculator mode)"""
         text_content = self.text_input.get(1.0, tk.END)
 
         try:
@@ -544,7 +1113,7 @@ What does John like?"""
             self.status_var.set(f"Error: {str(e)}")
 
     def clear_all(self):
-        """Clear everything"""
+        """Clear everything (calculator mode)"""
         self.inference_engine.clear()
         self.results_display.config(state=tk.NORMAL)
         self.results_display.delete(1.0, tk.END)
@@ -624,7 +1193,7 @@ def main():
     root = tk.Tk()
     root.resizable(True, True)
 
-    app = ModernACECalculator(root)
+    app = EnhancedACECalculator(root)
 
     # Show startup message if Prolog is not available
     if not PROLOG_AVAILABLE:
