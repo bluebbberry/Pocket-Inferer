@@ -26,4 +26,4 @@ main.py
 
 Here a short demo video:
 
-[https://makertube.net/w/uGJAWmF9nFj9tARrKS4NpF](https://makertube.net/w/uGJAWmF9nFj9tARrKS4NpF)
+[https://makertube.net/w/aW9Hg86K2TaXgT92J3tqLX](https://makertube.net/w/aW9Hg86K2TaXgT92J3tqLX)
