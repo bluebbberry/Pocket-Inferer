@@ -6,6 +6,7 @@ ACE to Prolog Parser - Separate parser class for converting ACE statements to Pr
 import re
 from typing import Optional
 
+from QueryType import QueryType
 
 
 class ACEToPrologParser:
@@ -115,6 +116,56 @@ class ACEToPrologParser:
                 return f"{property_name}({subject_norm})"
 
         return None
+
+    def parse_query_type(self, ace_query):
+        # Is X Y? queries
+        if ace_query.lower().startswith('is '):
+            return QueryType.IS_X_Y
+
+        # Who is X? queries
+        elif ace_query.lower().startswith('who is '):
+            return QueryType.WHO_IS_X
+
+        # What does X like? queries
+        elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower()):
+            return QueryType.WHAT_DOES_X_LIKE
+        return None
+
+    def parse_query(self, ace_query):
+
+        ace_query = ace_query.strip().rstrip('?')
+
+        prolog_query = None
+
+        query_type = self.parse_query_type(ace_query)
+
+        # Is X Y? queries
+        if query_type is QueryType.IS_X_Y:
+            query_content = ace_query[3:].strip()
+
+            # Pattern: is X happy
+            if re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content):
+                match = re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content)
+                entity = self.normalize_entity(match.group(1))
+                property_name = self.normalize_entity(match.group(2))
+
+                prolog_query = f"{property_name}({entity})"
+
+        # Who is X? queries
+        elif query_type is QueryType.WHO_IS_X:
+            property_name = ace_query[7:].strip().lower()
+            property_name = self.normalize_entity(property_name)
+
+            prolog_query = f"{property_name}(X)"
+
+        # What does X like? queries
+        elif query_type is QueryType.WHAT_DOES_X_LIKE:
+            match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower())
+            entity = self.normalize_entity(match.group(1))
+
+            prolog_query = f"likes({entity}, X)"
+
+        return prolog_query
 
 
 if __name__ == "__main__":
