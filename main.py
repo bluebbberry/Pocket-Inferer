@@ -109,7 +109,7 @@ class SimplePrologEngine:
         if not self.prolog_available:
             return "Prolog not available"
 
-        prolog_query = self.parser.parse_query(ace_query)
+        prolog_query = self.parser.ace_to_prolog_query(ace_query)
         ace_query = ace_query.strip().rstrip('?')
         query_type = self.parser.parse_query_type(ace_query)
 

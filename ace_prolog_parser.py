@@ -146,7 +146,7 @@ class ACEToPrologParser:
             return QueryType.WHAT_DOES_X_LIKE
         return None
 
-    def parse_query(self, ace_query):
+    def ace_to_prolog_query(self, ace_query):
 
         ace_query = ace_query.strip().rstrip('?')
 
@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
     print("=== Testing Queries ===")
     for query in queries:
-        prolog = parser.ace_query_to_prolog(query)
+        prolog = parser.ace_to_prolog_query(query)
         print(f"ACE: {query}")
         print(f"Prolog: {prolog}")
         print()
