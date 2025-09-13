@@ -4,8 +4,11 @@ ACE to Prolog Parser - Separate parser class for converting ACE statements to Pr
 """
 
 import re
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, List
 
+from ACEStatement import ACEStatement
+from QueryType import QueryType
 
 
 class ACEToPrologParser:
@@ -14,6 +17,19 @@ class ACEToPrologParser:
     def __init__(self):
         self.entity_map = {}
         self.next_entity_id = 1
+
+        self.fact_patterns = [
+            r'^[A-Z][a-zA-Z0-9_-]+ (is|are|has|have) .+\.$',
+            r'^[A-Z][a-zA-Z0-9_-]+ .+ [a-zA-Z0-9_-]+\.$'
+        ]
+        self.rule_patterns = [
+            r'^.+ if .+\.$',
+            r'^If .+ then .+\.$'
+        ]
+        self.query_patterns = [
+            r'^.+\?$',
+            r'^(Is|Are|Does|Do|Who|What|When|Where|Why|How) .+\?$'
+        ]
 
     def normalize_entity(self, entity: str) -> str:
         """Normalize entity names for Prolog"""
@@ -116,6 +132,82 @@ class ACEToPrologParser:
 
         return None
 
+    def parse_query_type(self, ace_query):
+        # Is X Y? queries
+        if ace_query.lower().startswith('is '):
+            return QueryType.IS_X_Y
+
+        # Who is X? queries
+        elif ace_query.lower().startswith('who is '):
+            return QueryType.WHO_IS_X
+
+        # What does X like? queries
+        elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower()):
+            return QueryType.WHAT_DOES_X_LIKE
+        return None
+
+    def ace_to_prolog_query(self, ace_query):
+
+        ace_query = ace_query.strip().rstrip('?')
+
+        prolog_query = None
+
+        query_type = self.parse_query_type(ace_query)
+
+        # Is X Y? queries
+        if query_type is QueryType.IS_X_Y:
+            query_content = ace_query[3:].strip()
+
+            # Pattern: is X happy
+            if re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content):
+                match = re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content)
+                entity = self.normalize_entity(match.group(1))
+                property_name = self.normalize_entity(match.group(2))
+
+                prolog_query = f"{property_name}({entity})"
+
+        # Who is X? queries
+        elif query_type is QueryType.WHO_IS_X:
+            property_name = ace_query[7:].strip().lower()
+            property_name = self.normalize_entity(property_name)
+
+            prolog_query = f"{property_name}(X)"
+
+        # What does X like? queries
+        elif query_type is QueryType.WHAT_DOES_X_LIKE:
+            match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower())
+            entity = self.normalize_entity(match.group(1))
+
+            prolog_query = f"likes({entity}, X)"
+
+        return prolog_query
+
+    def parse_statement(self, text: str) -> ACEStatement:
+        """Parse a single ACE statement"""
+        text = text.strip()
+
+        if any(re.match(pattern, text, re.IGNORECASE) for pattern in self.query_patterns):
+            return ACEStatement(text, 'query')
+        elif any(re.match(pattern, text, re.IGNORECASE) for pattern in self.rule_patterns):
+            return ACEStatement(text, 'rule')
+        elif any(re.match(pattern, text) for pattern in self.fact_patterns) or text.endswith('.'):
+            return ACEStatement(text, 'fact')
+        else:
+            # Default to fact if uncertain
+            return ACEStatement(text + '.' if not text.endswith('.') else text, 'fact')
+
+    def parse_text(self, text: str) -> List[ACEStatement]:
+        """Parse multiple ACE statements from text"""
+        statements = []
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+        for line in lines:
+            if line and not line.startswith('#'):  # Skip comments
+                statements.append(self.parse_statement(line))
+
+        return statements
+
+
 
 if __name__ == "__main__":
     # Quick demonstration
@@ -158,7 +250,7 @@ if __name__ == "__main__":
 
     print("=== Testing Queries ===")
     for query in queries:
-        prolog = parser.ace_query_to_prolog(query)
+        prolog = parser.ace_to_prolog_query(query)
         print(f"ACE: {query}")
         print(f"Prolog: {prolog}")
         print()

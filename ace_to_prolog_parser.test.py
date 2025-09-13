@@ -180,7 +180,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_are_question(self):
@@ -191,7 +191,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 # This test might need adjustment based on exact implementation
                 # self.assertEqual(result, expected)
 
@@ -205,7 +205,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_what_likes_question(self):
@@ -218,7 +218,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_does_question(self):
@@ -230,7 +230,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_case_insensitive(self):
@@ -243,7 +243,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_without_question_mark(self):
@@ -257,7 +257,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for ace_query, expected in test_cases:
             with self.subTest(ace_query=ace_query):
-                result = self.parser.ace_query_to_prolog(ace_query)
+                result = self.parser.ace_to_prolog_query(ace_query)
                 self.assertEqual(result, expected)
 
     def test_ace_query_to_prolog_invalid_patterns(self):
@@ -273,7 +273,7 @@ class TestACEToPrologParser(unittest.TestCase):
 
         for invalid_query in invalid_queries:
             with self.subTest(invalid_query=invalid_query):
-                result = self.parser.ace_query_to_prolog(invalid_query)
+                result = self.parser.ace_to_prolog_query(invalid_query)
                 self.assertIsNone(result)
 
     # ==================== EXPRESSION CONVERSION TESTS ====================
@@ -339,7 +339,7 @@ class TestACEToPrologParser(unittest.TestCase):
         rule_result = self.parser.ace_to_prolog_rule(test_cases[2][0])
         self.assertEqual(rule_result, test_cases[2][1])
 
-        query_result = self.parser.ace_query_to_prolog(test_cases[3][0])
+        query_result = self.parser.ace_to_prolog_query(test_cases[3][0])
         self.assertEqual(query_result, test_cases[3][1])
 
     def test_hyphen_to_underscore_conversion(self):
@@ -479,7 +479,7 @@ class TestACEToPrologParserIntegration(unittest.TestCase):
 
         for i, query in enumerate(queries):
             with self.subTest(query=query):
-                result = self.parser.ace_query_to_prolog(query)
+                result = self.parser.ace_to_prolog_query(query)
                 self.assertEqual(result, expected_queries[i])
 
     def test_mixed_case_scenario(self):
@@ -499,7 +499,7 @@ class TestACEToPrologParserIntegration(unittest.TestCase):
                 elif input_type == "rule":
                     result = self.parser.ace_to_prolog_rule(ace_input)
                 elif input_type == "query":
-                    result = self.parser.ace_query_to_prolog(ace_input)
+                    result = self.parser.ace_to_prolog_query(ace_input)
 
                 self.assertEqual(result, expected)
 
@@ -518,7 +518,7 @@ class TestACEToPrologParserIntegration(unittest.TestCase):
                 # All parsing methods should return None for invalid input
                 fact_result = self.parser.ace_to_prolog_fact(invalid_input)
                 rule_result = self.parser.ace_to_prolog_rule(invalid_input)
-                query_result = self.parser.ace_query_to_prolog(invalid_input)
+                query_result = self.parser.ace_to_prolog_query(invalid_input)
 
                 # At least one should be None (most likely all)
                 results = [fact_result, rule_result, query_result]

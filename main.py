@@ -16,6 +16,7 @@ from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+from QueryType import QueryType
 from ace_prolog_parser import ACEToPrologParser
 
 try:
@@ -27,65 +28,12 @@ except ImportError:
 
 
 @dataclass
-class ACEStatement:
-    """Represents an ACE statement with its type and content"""
-    content: str
-    statement_type: str  # 'fact', 'rule', 'query'
-
-    def __str__(self):
-        return self.content
-
-
-@dataclass
 class ProjectFile:
     """Represents a project file"""
     name: str
     path: str
     content: str = ""
     is_modified: bool = False
-
-
-class ACEParser:
-    """Enhanced ACE parser for logical statements"""
-
-    def __init__(self):
-        self.fact_patterns = [
-            r'^[A-Z][a-zA-Z0-9_-]+ (is|are|has|have) .+\.$',
-            r'^[A-Z][a-zA-Z0-9_-]+ .+ [a-zA-Z0-9_-]+\.$'
-        ]
-        self.rule_patterns = [
-            r'^.+ if .+\.$',
-            r'^If .+ then .+\.$'
-        ]
-        self.query_patterns = [
-            r'^.+\?$',
-            r'^(Is|Are|Does|Do|Who|What|When|Where|Why|How) .+\?$'
-        ]
-
-    def parse_statement(self, text: str) -> ACEStatement:
-        """Parse a single ACE statement"""
-        text = text.strip()
-
-        if any(re.match(pattern, text, re.IGNORECASE) for pattern in self.query_patterns):
-            return ACEStatement(text, 'query')
-        elif any(re.match(pattern, text, re.IGNORECASE) for pattern in self.rule_patterns):
-            return ACEStatement(text, 'rule')
-        elif any(re.match(pattern, text) for pattern in self.fact_patterns) or text.endswith('.'):
-            return ACEStatement(text, 'fact')
-        else:
-            # Default to fact if uncertain
-            return ACEStatement(text + '.' if not text.endswith('.') else text, 'fact')
-
-    def parse_text(self, text: str) -> List[ACEStatement]:
-        """Parse multiple ACE statements from text"""
-        statements = []
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-        for line in lines:
-            if line and not line.startswith('#'):  # Skip comments
-                statements.append(self.parse_statement(line))
-
-        return statements
 
 
 class SimplePrologEngine:
@@ -161,29 +109,24 @@ class SimplePrologEngine:
         if not self.prolog_available:
             return "Prolog not available"
 
+        prolog_query = self.parser.ace_to_prolog_query(ace_query)
         ace_query = ace_query.strip().rstrip('?')
+        query_type = self.parser.parse_query_type(ace_query)
 
         try:
             # Is X Y? queries
-            if ace_query.lower().startswith('is '):
+            if query_type is QueryType.IS_X_Y:
                 query_content = ace_query[3:].strip()
 
                 # Pattern: is X happy
                 if re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content):
-                    match = re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content)
-                    entity = self.parser.normalize_entity(match.group(1))
-                    property_name = self.parser.normalize_entity(match.group(2))
-
-                    results = list(janus.query(f"{property_name}({entity})"))
+                    results = list(janus.query(prolog_query))
                     return "Yes" if results else "No"
 
             # Who is X? queries
-            elif ace_query.lower().startswith('who is '):
-                property_name = ace_query[7:].strip().lower()
-                property_name = self.parser.normalize_entity(property_name)
-
+            elif query_type is QueryType.WHO_IS_X:
                 try:
-                    results = list(janus.query(f"{property_name}(X)"))
+                    results = list(janus.query(prolog_query))
                     if results:
                         entities = [result['X'].title() for result in results]
                         return ', '.join(entities)
@@ -193,12 +136,9 @@ class SimplePrologEngine:
                     return "Cannot answer this query"
 
             # What does X like? queries
-            elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower()):
-                match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower())
-                entity = self.parser.normalize_entity(match.group(1))
-
+            elif query_type is QueryType.WHAT_DOES_X_LIKE:
                 try:
-                    results = list(janus.query(f"likes({entity}, X)"))
+                    results = list(prolog_query)
                     if results:
                         objects = [result['X'].title() for result in results]
                         return ', '.join(objects)
@@ -206,12 +146,11 @@ class SimplePrologEngine:
                         return "Nothing found"
                 except Exception:
                     return "Cannot answer this query"
+            return "Syntax error: query type not recognized"
 
         except Exception as e:
             print(f"Query error: {e}")
             return f"Error in query: {str(e)}"
-
-        return "Cannot answer this type of query"
 
     def get_all_facts(self) -> List[str]:
         """Get all derived facts from Prolog"""
@@ -611,7 +550,7 @@ class EnhancedACECalculator:
         self.setup_styles()
 
         # Core components
-        self.parser = ACEParser()
+        self.parser = ACEToPrologParser()
         self.inference_engine = SimplePrologEngine()
 
         # UI components
