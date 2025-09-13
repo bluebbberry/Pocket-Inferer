@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+programming_mode_home/
 
 # C extensions
 *.so
