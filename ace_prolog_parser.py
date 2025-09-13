@@ -4,8 +4,10 @@ ACE to Prolog Parser - Separate parser class for converting ACE statements to Pr
 """
 
 import re
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, List
 
+from ACEStatement import ACEStatement
 from QueryType import QueryType
 
 
@@ -15,6 +17,19 @@ class ACEToPrologParser:
     def __init__(self):
         self.entity_map = {}
         self.next_entity_id = 1
+
+        self.fact_patterns = [
+            r'^[A-Z][a-zA-Z0-9_-]+ (is|are|has|have) .+\.$',
+            r'^[A-Z][a-zA-Z0-9_-]+ .+ [a-zA-Z0-9_-]+\.$'
+        ]
+        self.rule_patterns = [
+            r'^.+ if .+\.$',
+            r'^If .+ then .+\.$'
+        ]
+        self.query_patterns = [
+            r'^.+\?$',
+            r'^(Is|Are|Does|Do|Who|What|When|Where|Why|How) .+\?$'
+        ]
 
     def normalize_entity(self, entity: str) -> str:
         """Normalize entity names for Prolog"""
@@ -166,6 +181,32 @@ class ACEToPrologParser:
             prolog_query = f"likes({entity}, X)"
 
         return prolog_query
+
+    def parse_statement(self, text: str) -> ACEStatement:
+        """Parse a single ACE statement"""
+        text = text.strip()
+
+        if any(re.match(pattern, text, re.IGNORECASE) for pattern in self.query_patterns):
+            return ACEStatement(text, 'query')
+        elif any(re.match(pattern, text, re.IGNORECASE) for pattern in self.rule_patterns):
+            return ACEStatement(text, 'rule')
+        elif any(re.match(pattern, text) for pattern in self.fact_patterns) or text.endswith('.'):
+            return ACEStatement(text, 'fact')
+        else:
+            # Default to fact if uncertain
+            return ACEStatement(text + '.' if not text.endswith('.') else text, 'fact')
+
+    def parse_text(self, text: str) -> List[ACEStatement]:
+        """Parse multiple ACE statements from text"""
+        statements = []
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+        for line in lines:
+            if line and not line.startswith('#'):  # Skip comments
+                statements.append(self.parse_statement(line))
+
+        return statements
+
 
 
 if __name__ == "__main__":

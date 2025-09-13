@@ -28,65 +28,12 @@ except ImportError:
 
 
 @dataclass
-class ACEStatement:
-    """Represents an ACE statement with its type and content"""
-    content: str
-    statement_type: str  # 'fact', 'rule', 'query'
-
-    def __str__(self):
-        return self.content
-
-
-@dataclass
 class ProjectFile:
     """Represents a project file"""
     name: str
     path: str
     content: str = ""
     is_modified: bool = False
-
-
-class ACEParser:
-    """Enhanced ACE parser for logical statements"""
-
-    def __init__(self):
-        self.fact_patterns = [
-            r'^[A-Z][a-zA-Z0-9_-]+ (is|are|has|have) .+\.$',
-            r'^[A-Z][a-zA-Z0-9_-]+ .+ [a-zA-Z0-9_-]+\.$'
-        ]
-        self.rule_patterns = [
-            r'^.+ if .+\.$',
-            r'^If .+ then .+\.$'
-        ]
-        self.query_patterns = [
-            r'^.+\?$',
-            r'^(Is|Are|Does|Do|Who|What|When|Where|Why|How) .+\?$'
-        ]
-
-    def parse_statement(self, text: str) -> ACEStatement:
-        """Parse a single ACE statement"""
-        text = text.strip()
-
-        if any(re.match(pattern, text, re.IGNORECASE) for pattern in self.query_patterns):
-            return ACEStatement(text, 'query')
-        elif any(re.match(pattern, text, re.IGNORECASE) for pattern in self.rule_patterns):
-            return ACEStatement(text, 'rule')
-        elif any(re.match(pattern, text) for pattern in self.fact_patterns) or text.endswith('.'):
-            return ACEStatement(text, 'fact')
-        else:
-            # Default to fact if uncertain
-            return ACEStatement(text + '.' if not text.endswith('.') else text, 'fact')
-
-    def parse_text(self, text: str) -> List[ACEStatement]:
-        """Parse multiple ACE statements from text"""
-        statements = []
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-        for line in lines:
-            if line and not line.startswith('#'):  # Skip comments
-                statements.append(self.parse_statement(line))
-
-        return statements
 
 
 class SimplePrologEngine:
@@ -603,7 +550,7 @@ class EnhancedACECalculator:
         self.setup_styles()
 
         # Core components
-        self.parser = ACEParser()
+        self.parser = ACEToPrologParser()
         self.inference_engine = SimplePrologEngine()
 
         # UI components
