@@ -1,4 +1,4 @@
-# Pocket-Inferer - ACE Logical Inference Calculator with SWI-Prolog Backend
+# Pocket-Inferer / Taschenfolgerer - ACE Logical Inference Calculator with SWI-Prolog Backend
 
 A desktop application implementing Attempto Controlled English for logical reasoning. Uses SWI-Prolog through janus_swi for proper logical inference. Based on: https://philpapers.org/rec/BINFPT-3.
 
