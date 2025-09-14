@@ -4,7 +4,7 @@ Comprehensive test suite for ACEToPrologParser
 """
 
 import unittest
-from ace_prolog_parser import ACEToPrologParser
+from src.ace_prolog_parser import ACEToPrologParser
 
 
 class TestACEToPrologParser(unittest.TestCase):
