@@ -4,8 +4,7 @@ ACE to Prolog Parser - Separate parser class for converting ACE statements to Pr
 """
 
 import re
-from dataclasses import dataclass
-from typing import Optional, List
+from typing import List
 
 from src.ACEStatement import ACEStatement
 from src.QueryType import QueryType
