@@ -5,8 +5,6 @@ Tests end-to-end functionality combining multiple components
 """
 
 import unittest
-import sys
-import os
 
 from src.ace_prolog_parser import ACEToPrologParser
 from src.QueryType import QueryType
