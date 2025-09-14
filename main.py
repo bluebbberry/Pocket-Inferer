@@ -9,15 +9,13 @@ Now includes IDE-like programming mode with file browser and enhanced code editi
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 import csv
-import json
 import re
 import os
-from typing import List, Dict, Tuple, Set, Optional
+from typing import List, Dict, Tuple
 from dataclasses import dataclass
-from pathlib import Path
 
-from QueryType import QueryType
-from ace_prolog_parser import ACEToPrologParser
+from src.QueryType import QueryType
+from src.ace_prolog_parser import ACEToPrologParser
 
 try:
     import janus_swi as janus

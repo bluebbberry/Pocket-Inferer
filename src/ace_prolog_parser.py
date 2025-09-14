@@ -7,8 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional, List
 
-from ACEStatement import ACEStatement
-from QueryType import QueryType
+from src.ACEStatement import ACEStatement
+from src.QueryType import QueryType
 
 
 class ACEToPrologParser:
