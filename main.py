@@ -57,7 +57,7 @@ Examples:
 "If someone likes chocolate they become happy" → "X is happy if X likes chocolate."
 "Who is happy" → "Who is happy?"
 
-Convert to ACE format:"""
+Convert to ACE format (cut out everything else):"""
 
     def _check_availability(self) -> bool:
         """Check if Ollama is running"""
