@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-ACE Logical Inference Calculator - Enhanced with IDE Mode
+ACE Logical Inference Calculator - Enhanced with IDE Mode and AI Assist
 A redesigned desktop application with calculator-like interface for logical reasoning
 Combines free-form text input with tagged template insertion
 Now includes IDE-like programming mode with file browser and enhanced code editing
+Added AI assistance for natural language to ACE translation via Ollama
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 import csv
 import re
 import os
-from typing import List, Dict, Tuple
+import requests
+import threading
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 
 from src.QueryType import QueryType
@@ -32,6 +35,111 @@ class ProjectFile:
     path: str
     content: str = ""
     is_modified: bool = False
+
+
+class SimpleOllamaTranslator:
+    """Simple Ollama translator for natural language to ACE"""
+
+    def __init__(self, ollama_url: str = "http://localhost:11434", model: str = "mistral:latest"):
+        self.ollama_url = ollama_url.rstrip('/')
+        self.model = model
+        self.available = self._check_availability()
+
+        self.system_prompt = """Convert this natural language to ACE (Attempto Controlled English) format.
+
+ACE Rules:
+- Facts: "John is happy." or "Mary likes chocolate."
+- Rules: "X is happy if X likes chocolate." (use X, Y variables)
+- Questions: "Is John happy?" or "Who is happy?"
+
+Examples:
+"John is a happy person" → "John is happy."
+"If someone likes chocolate they become happy" → "X is happy if X likes chocolate."
+"Who is happy" → "Who is happy?"
+
+Convert to ACE format (cut out everything else):"""
+
+    def _check_availability(self) -> bool:
+        """Check if Ollama is running"""
+        try:
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=3)
+            return response.status_code == 200
+        except:
+            return False
+
+    def translate(self, text: str) -> Optional[str]:
+        """Translate natural language to ACE"""
+        if not self.available:
+            return self._simple_fallback(text)
+
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": f"{self.system_prompt}\n\n{text}",
+                    "stream": False,
+                    "options": {"temperature": 0.1, "max_tokens": 100}
+                },
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                result = response.json()['response'].strip()
+                return self._clean_result(result)
+
+        except Exception as e:
+            print(f"Ollama error: {e}")
+
+        return self._simple_fallback(text)
+
+    def _clean_result(self, result: str) -> str:
+        """Clean Ollama output"""
+        # Take first line that looks like ACE
+        for line in result.split('\n'):
+            line = line.strip().strip('"\'')
+            if line and (line.endswith('.') or line.endswith('?')):
+                return self._capitalize_names(line)
+
+        # Fallback to first non-empty line
+        first_line = result.split('\n')[0].strip().strip('"\'')
+        if not first_line.endswith(('.', '?')):
+            first_line += '.'
+        return self._capitalize_names(first_line)
+
+    def _capitalize_names(self, text: str) -> str:
+        """Capitalize proper names"""
+        words = text.split()
+        common_words = {'is', 'are', 'has', 'have', 'likes', 'like', 'if', 'then', 'who', 'what', 'does'}
+
+        result = []
+        for i, word in enumerate(words):
+            if word.upper() in ['X', 'Y']:
+                result.append(word.upper())
+            elif i == 0 or (word.lower() not in common_words and word.isalpha()):
+                result.append(word.capitalize())
+            else:
+                result.append(word.lower())
+
+        return ' '.join(result)
+
+    def _simple_fallback(self, text: str) -> str:
+        """Simple pattern-based fallback"""
+        text = text.strip().lower()
+
+        # Basic patterns
+        if re.match(r'(.+) is (.+)', text):
+            match = re.match(r'(.+) is (.+)', text)
+            return f"{match.group(1).capitalize()} is {match.group(2)}."
+        elif re.match(r'(.+) likes? (.+)', text):
+            match = re.match(r'(.+) likes? (.+)', text)
+            return f"{match.group(1).capitalize()} likes {match.group(2)}."
+        elif text.startswith('who'):
+            return f"{text.capitalize()}?"
+        elif text.startswith('is '):
+            return f"{text.capitalize()}?"
+        else:
+            return f"{text.capitalize()}."
 
 
 class SimplePrologEngine:
@@ -325,7 +433,7 @@ class FileExplorer:
 
     def new_file(self):
         """Create new file"""
-        filename = tk.simpledialog.askstring("New File", "Enter filename:", initialvalue="untitled.ace")
+        filename = simpledialog.askstring("New File", "Enter filename:", initialvalue="untitled.ace")
         if filename:
             path = os.path.join(self.current_directory, filename)
             file_obj = ProjectFile(
@@ -533,7 +641,7 @@ class CodeEditor:
 
 
 class EnhancedACECalculator:
-    """Enhanced ACE Calculator with IDE mode"""
+    """Enhanced ACE Calculator with IDE mode and AI Assist"""
 
     def __init__(self, root):
         self.root = root
@@ -550,6 +658,9 @@ class EnhancedACECalculator:
         # Core components
         self.parser = ACEToPrologParser()
         self.inference_engine = SimplePrologEngine()
+
+        # AI Assistant
+        self.ai_translator = SimpleOllamaTranslator()
 
         # UI components
         self.setup_ui()
@@ -586,6 +697,51 @@ class EnhancedACECalculator:
 
         # Create calculator mode UI
         self.setup_calculator_mode()
+
+    def show_ai_assist(self):
+        """Show AI assist dialog"""
+        user_input = simpledialog.askstring(
+            "AI Assistant",
+            "Enter natural language statement:\n\n"
+            "Examples:\n"
+            "• 'John is happy'\n"
+            "• 'If someone likes chocolate then they are happy'\n"
+            "• 'Who is happy?'"
+        )
+
+        if user_input and user_input.strip():
+            # Show progress
+            self.status_var.set("AI translating...")
+            self.root.update()
+
+            def do_translation():
+                try:
+                    ace_result = self.ai_translator.translate(user_input.strip())
+                    if ace_result:
+                        # Add to text area
+                        self.root.after(0, lambda: self.add_translated_text(ace_result))
+                    else:
+                        self.root.after(0, lambda: self.status_var.set("Translation failed - try rephrasing"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.status_var.set(f"Error: {str(e)}"))
+
+            # Run in thread to avoid blocking
+            threading.Thread(target=do_translation, daemon=True).start()
+
+    def add_translated_text(self, ace_text):
+        """Add translated ACE text to the main text area"""
+        # Insert at current cursor position
+        current_pos = self.text_input.index(tk.INSERT)
+
+        # Add newline if not at start of line
+        if self.text_input.get(f"{current_pos} linestart", current_pos).strip():
+            self.text_input.insert(current_pos, "\n")
+
+        # Insert the translated text
+        self.text_input.insert(tk.INSERT, ace_text + "\n")
+
+        # Update status
+        self.status_var.set(f"Added: {ace_text}")
 
     def setup_calculator_mode(self):
         """Setup calculator-like interface"""
@@ -920,7 +1076,7 @@ What does John like?"""
 
         # Row 3: Actions
         self.create_calc_button(grid_container, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 3, width=15)
-        self.create_calc_button(grid_container, "CLEAR", self.clear_all, '#e74c3c', 1, 3, width=15)
+        self.create_calc_button(grid_container, "ASSIST", lambda: self.show_ai_assist(), '#e74c3c', 1, 3, width=15)
 
     def create_calc_button(self, parent, text, command, color, row, col, width=12):
         """Create a calculator-style button"""
