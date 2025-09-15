@@ -10,13 +10,17 @@ A desktop application implementing Attempto Controlled English for logical reaso
 - Ubuntu/Debian: sudo apt-get install swi-prolog
 - macOS: brew install swi-prolog
 
-2. Install Python dependencies:
+2. Install Ollama
+
+- Download from: https://ollama.com/download
+
+3. Install Python dependencies:
 
 ```bash
 pip install janus_swi
 ```
 
-3. Run the program:
+4. Run the program:
 
 ```bash
 main.py
