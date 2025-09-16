@@ -293,6 +293,279 @@ class SimplePrologEngine:
         return all_facts
 
 
+class CSVMappingDialog:
+    """Dialog for editing LLM-generated CSV to ACE mapping"""
+
+    def __init__(self, parent, headers, sample_row, ai_translator):
+        self.parent = parent
+        self.headers = headers
+        self.sample_row = sample_row
+        self.ai_translator = ai_translator
+        self.result = None
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("CSV to ACE Mapping")
+        self.dialog.geometry("900x500")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self.setup_ui()
+        self.generate_initial_mapping()
+
+    def setup_ui(self):
+        """Setup the mapping dialog UI"""
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # Title
+        title_label = ttk.Label(main_frame, text="CSV to ACE Logic Mapping",
+                                font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+
+        # Sample data display
+        sample_frame = ttk.LabelFrame(main_frame, text="Sample CSV Row", padding=10)
+        sample_frame.pack(fill='x', pady=(0, 15))
+
+        sample_display = tk.Text(sample_frame, height=2, font=('Consolas', 9),
+                                 state='disabled', bg='#f8f9fa')
+        sample_display.pack(fill='x')
+
+        # Display sample data
+        sample_display.config(state='normal')
+        sample_content = " | ".join([f"{h}: {v}" for h, v in zip(self.headers, self.sample_row)])
+        sample_display.insert('1.0', sample_content)
+        sample_display.config(state='disabled')
+
+        # Main mapping section - two columns
+        mapping_frame = ttk.LabelFrame(main_frame, text="Row Mapping", padding=15)
+        mapping_frame.pack(fill='both', expand=True, pady=(0, 15))
+
+        # Create two-column layout
+        columns_container = ttk.Frame(mapping_frame)
+        columns_container.pack(fill='both', expand=True)
+
+        # Left column - Column names
+        left_column = ttk.Frame(columns_container)
+        left_column.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+        ttk.Label(left_column, text="CSV Columns:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        self.columns_display = tk.Text(left_column, font=('Consolas', 10),
+                                       state='disabled', bg='#f8f9fa', width=35)
+        self.columns_display.pack(fill='both', expand=True)
+
+        # Right column - ACE template
+        right_column = ttk.Frame(columns_container)
+        right_column.pack(side='right', fill='both', expand=True, padx=(10, 0))
+
+        ttk.Label(right_column, text="ACE Statements (use <column_name> tags):",
+                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        self.ace_template = scrolledtext.ScrolledText(right_column, font=('Consolas', 10),
+                                                      wrap='word', width=50)
+        self.ace_template.pack(fill='both', expand=True)
+
+        # Fill columns display
+        self.populate_columns_display()
+
+        # Preview section
+        preview_frame = ttk.LabelFrame(main_frame, text="Preview (Applied to Sample Row)", padding=10)
+        preview_frame.pack(fill='x', pady=(0, 15))
+
+        self.preview_text = scrolledtext.ScrolledText(preview_frame, height=4,
+                                                      font=('Consolas', 10), state='disabled',
+                                                      bg='#f0f8ff')
+        self.preview_text.pack(fill='x')
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x')
+
+        ttk.Button(button_frame, text="Generate AI Mapping",
+                   command=self.generate_initial_mapping).pack(side='left', padx=(0, 10))
+        ttk.Button(button_frame, text="Update Preview",
+                   command=self.update_preview).pack(side='left', padx=(0, 10))
+
+        ttk.Button(button_frame, text="Cancel",
+                   command=self.cancel).pack(side='right', padx=(10, 0))
+        ttk.Button(button_frame, text="Apply Mapping",
+                   command=self.apply_mapping).pack(side='right', padx=(10, 0))
+
+        # Bind template changes to preview update
+        self.ace_template.bind('<KeyRelease>', lambda e: self.root.after(1000, self.update_preview))
+
+    def populate_columns_display(self):
+        """Fill the columns display with CSV column names and sample values"""
+        self.columns_display.config(state='normal')
+        self.columns_display.delete('1.0', 'end')
+
+        content = []
+        for i, (header, value) in enumerate(zip(self.headers, self.sample_row), 1):
+            content.append(f"{i:2d}. {header}")
+            content.append(f"    Sample: {value}")
+            content.append("")
+
+        self.columns_display.insert('1.0', '\n'.join(content))
+        self.columns_display.config(state='disabled')
+
+    def generate_initial_mapping(self):
+        """Generate initial mapping using AI"""
+        if not self.ai_translator.available:
+            self.generate_fallback_mapping()
+            return
+
+        headers_text = ", ".join(self.headers)
+        sample_text = " | ".join([f"{h}={v}" for h, v in zip(self.headers, self.sample_row)])
+
+        prompt = f"""Convert this CSV structure to ACE (Attempto Controlled English) statements.
+
+CSV Columns: {headers_text}
+Sample Row: {sample_text}
+
+Generate ACE statements using <column_name> tags for substitution.
+
+Example:
+For columns: name, age, city
+ACE output: <name> is a person. <name> has age <age>. <name> lives in <city>.
+
+Generate concise ACE statements for these columns:"""
+
+        try:
+            response = self.generate_mapping_with_ai(prompt)
+            if response:
+                self.parse_ai_response(response)
+            else:
+                self.generate_fallback_mapping()
+        except:
+            self.generate_fallback_mapping()
+
+    def generate_mapping_with_ai(self, prompt):
+        """Generate mapping using AI translator"""
+        try:
+            response = requests.post(
+                f"{self.ai_translator.ollama_url}/api/generate",
+                json={
+                    "model": self.ai_translator.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "max_tokens": 150}
+                },
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                return response.json()['response'].strip()
+        except:
+            pass
+        return None
+
+    def parse_ai_response(self, response):
+        """Parse AI response and extract ACE statements"""
+        lines = response.split('\n')
+        ace_statements = []
+
+        for line in lines:
+            line = line.strip()
+            # Look for lines that contain angle bracket tags and look like ACE statements
+            if '<' in line and '>' in line and (line.endswith('.') or line.endswith('?')):
+                ace_statements.append(line)
+
+        # If no proper statements found, try to extract any line with angle brackets
+        if not ace_statements:
+            for line in lines:
+                line = line.strip()
+                if '<' in line and '>' in line and line:
+                    # Ensure it ends with proper punctuation
+                    if not line.endswith(('.', '?', '!')):
+                        line += '.'
+                    ace_statements.append(line)
+
+        # Set the template
+        if ace_statements:
+            self.ace_template.delete('1.0', 'end')
+            self.ace_template.insert('1.0', '\n'.join(ace_statements))
+        else:
+            self.generate_fallback_mapping()
+
+        self.update_preview()
+
+    def generate_fallback_mapping(self):
+        """Generate simple fallback mapping when AI fails"""
+        statements = []
+
+        if len(self.headers) >= 1:
+            first_col = self.headers[0]
+
+            # For remaining columns, create has/property statements
+            for header in self.headers[1:]:
+                clean_prop = header.lower().replace('_', ' ').replace('-', ' ')
+                statements.append(f"<{first_col}> has {clean_prop} <{header}>.")
+
+        self.ace_template.delete('1.0', 'end')
+        self.ace_template.insert('1.0', '\n'.join(statements))
+        self.update_preview()
+
+    def update_preview(self):
+        """Update preview with sample data applied to template"""
+        template_text = self.ace_template.get('1.0', 'end-1c').strip()
+
+        if not template_text:
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', "No template defined")
+            self.preview_text.config(state='disabled')
+            return
+
+        # Create substitution dictionary
+        substitutions = {}
+        for header, value in zip(self.headers, self.sample_row):
+            substitutions[header] = value
+
+        preview_lines = []
+
+        try:
+            # Apply substitutions to each line
+            for line in template_text.split('\n'):
+                line = line.strip()
+                if line:
+                    # Replace <column_name> tags with actual values
+                    result_line = line
+                    for header, value in substitutions.items():
+                        tag = f"<{header}>"
+                        if tag in result_line:
+                            result_line = result_line.replace(tag, value)
+
+                    preview_lines.append(result_line)
+
+            # Update preview display
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', '\n'.join(preview_lines))
+            self.preview_text.config(state='disabled')
+
+        except Exception as e:
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', f"Preview error: {str(e)}")
+            self.preview_text.config(state='disabled')
+
+    def apply_mapping(self):
+        """Apply the mapping and close dialog"""
+        template_text = self.ace_template.get('1.0', 'end-1c').strip()
+
+        if not template_text:
+            messagebox.showwarning("Warning", "Please define ACE template statements")
+            return
+
+        self.result = template_text
+        self.dialog.destroy()
+
+    def cancel(self):
+        """Cancel the dialog"""
+        self.result = None
+        self.dialog.destroy()
+
+
 class CSVProcessor:
     """Process CSV files and convert to ACE facts"""
 
@@ -309,9 +582,36 @@ class CSVProcessor:
             raise Exception(f"Error loading CSV: {str(e)}")
 
     @staticmethod
+    def convert_to_ace_facts_with_template(headers: List[str], data: List[Dict[str, str]],
+                                           ace_template: str) -> List[str]:
+        """Convert CSV data to ACE facts using template with <column_name> tags"""
+        facts = []
+
+        for i, row in enumerate(data):
+            # Process each line of the template
+            for line in ace_template.split('\n'):
+                line = line.strip()
+                if line:
+                    # Replace <column_name> tags with actual values
+                    result_line = line
+                    for header in headers:
+                        tag = f"<{header}>"
+                        if tag in result_line:
+                            value = row.get(header, '').strip()
+                            result_line = result_line.replace(tag, value)
+
+                    # Only add if all tags were replaced (no < > remaining)
+                    if '<' not in result_line or '>' not in result_line:
+                        if not result_line.endswith('.') and not result_line.endswith('?'):
+                            result_line += '.'
+                        facts.append(result_line)
+
+        return facts
+
+    @staticmethod
     def convert_to_ace_facts(headers: List[str], data: List[Dict[str, str]],
                              entity_prefix: str = "Entity") -> List[str]:
-        """Convert CSV data to ACE facts"""
+        """Convert CSV data to ACE facts (legacy method)"""
         facts = []
 
         for i, row in enumerate(data):
@@ -1218,8 +1518,9 @@ What does John like?"""
         self.text_input.delete(1.0, tk.END)
         self.status_var.set("Text cleared")
 
+    # Updated load_csv method in EnhancedACECalculator class
     def load_csv(self):
-        """Load CSV file and convert to ACE facts"""
+        """Load CSV file and convert to ACE facts with LLM-powered mapping"""
         file_path = filedialog.askopenfilename(
             title="Select CSV file",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
@@ -1228,19 +1529,38 @@ What does John like?"""
         if file_path:
             try:
                 headers, data = CSVProcessor.load_csv(file_path)
-                facts = CSVProcessor.convert_to_ace_facts(headers, data)
 
-                # Add facts to text area
-                current_text = self.text_input.get(1.0, tk.END)
-                if current_text.strip():
-                    self.text_input.insert(tk.END, "\n\n# CSV Facts\n")
+                if not data:
+                    messagebox.showwarning("Warning", "CSV file is empty")
+                    return
+
+                # Show mapping dialog with sample row
+                sample_row = [data[0].get(header, '') for header in headers]
+
+                # Create and show mapping dialog
+                mapping_dialog = CSVMappingDialog(self.root, headers, sample_row, self.ai_translator)
+                self.root.wait_window(mapping_dialog.dialog)
+
+                # Check if user applied mapping
+                if mapping_dialog.result:
+                    # Convert using template
+                    facts = CSVProcessor.convert_to_ace_facts_with_template(
+                        headers, data, mapping_dialog.result
+                    )
+
+                    # Add facts to text area
+                    current_text = self.text_input.get(1.0, tk.END)
+                    if current_text.strip():
+                        self.text_input.insert(tk.END, "\n\n# CSV Facts (Template Mapping)\n")
+                    else:
+                        self.text_input.insert(tk.END, "# CSV Facts (Template Mapping)\n")
+
+                    for fact in facts:
+                        self.text_input.insert(tk.END, fact + "\n")
+
+                    self.status_var.set(f"Loaded {len(facts)} facts from CSV with template mapping")
                 else:
-                    self.text_input.insert(tk.END, "# CSV Facts\n")
-
-                for fact in facts:
-                    self.text_input.insert(tk.END, fact + "\n")
-
-                self.status_var.set(f"Loaded {len(facts)} facts from CSV")
+                    self.status_var.set("CSV import cancelled")
 
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading CSV: {str(e)}")
