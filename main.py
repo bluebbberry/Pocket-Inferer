@@ -168,11 +168,7 @@ class SimplePrologEngine:
         if self.prolog_available:
             try:
                 # Clear all dynamic predicates
-                predicates_to_clear = [
-                    "person(_)", "likes(_, _)", "happy(_)", "has_property(_, _, _)",
-                    "sad(_)", "tall(_)", "smart(_)", "young(_)", "old(_)"
-                ]
-                for pred in predicates_to_clear:
+                for pred in self.parser.predicates_to_clear:
                     try:
                         list(janus.query(f"retractall({pred})"))
                     except:
@@ -244,7 +240,7 @@ class SimplePrologEngine:
             # What does X like? queries
             elif query_type is QueryType.WHAT_DOES_X_LIKE:
                 try:
-                    results = list(prolog_query)
+                    results = list(janus.query(prolog_query))
                     if results:
                         objects = [result['X'].title() for result in results]
                         return ', '.join(objects)
@@ -252,7 +248,31 @@ class SimplePrologEngine:
                         return "Nothing found"
                 except Exception:
                     return "Cannot answer this query"
-            return "Syntax error: query type not recognized"
+
+            elif query_type is QueryType.HOW_MUCH:
+                print("Prolog query:")
+                print(prolog_query)
+                try:
+                    results = list(janus.query(prolog_query))
+                    print("Results:")
+                    print(results)
+                    if results:
+                        return results[0]['X']
+                    else:
+                        return "Nothing found"
+                except Exception:
+                    return "Cannot answer this query"
+
+            elif query_type is QueryType.IS_ELIGIBLE_FOR:
+                print("Prolog query:")
+                print(prolog_query)
+                try:
+                    results = list(janus.query(prolog_query))
+                    return "Yes" if results else "No"
+                except Exception:
+                    return "Cannot answer this query"
+
+            return "Syntax error: query type '" + query_type + "' not recognized"
 
         except Exception as e:
             print(f"Query error: {e}")
