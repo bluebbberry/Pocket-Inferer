@@ -45,7 +45,7 @@ class APEResult:
 class APEClient:
     """Client for communicating with APE HTTP server"""
 
-    def __init__(self, server_url: str = "http://localhost:8000"):
+    def __init__(self, server_url: str = "http://localhost:8001"):
         self.server_url = server_url.rstrip('/')
         self.available = False
         self.check_availability()
@@ -1526,7 +1526,7 @@ Who is a grandparent of Peter?"""
         """Parse all statements in the text box using APE"""
         if not self.ape_client.available:
             messagebox.showerror("Error",
-                                 "APE server is not available. Please start the APE HTTP server at http://localhost:8000")
+                                 "APE server is not available. Please start the APE HTTP server at http://localhost:8001")
             return
 
         text_content = self.text_input.get(1.0, tk.END)
@@ -1772,7 +1772,7 @@ def main():
                 "To enable full functionality:\n"
                 "1. Download and compile APE from http://attempto.ifi.uzh.ch\n"
                 "2. Start the HTTP server: ./ape.exe -httpserver\n"
-                "3. The server will run at http://localhost:8000\n\n"
+                "3. The server will run at http://localhost:8001\n\n"
                 "For AI translation assistance, also ensure Ollama is running."
             )
 

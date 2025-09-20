@@ -22,8 +22,7 @@ A powerful desktop application for logical reasoning using **Attempto Controlled
 
 ### Optional Components
 
-4. **Ollama** - For AI-powered natural language translation
-5. **Mistral or similar LLM** - Running in Ollama for translation features
+4. **Ollama** - For AI-powered natural language translation, supporting Mistral or similar LLM
 
 ## Installation & Setup
 
@@ -64,7 +63,7 @@ make install
 ### Step 3: Start APE HTTP Server
 
 ```bash
-# Start APE server on default port 8000
+# Start APE server on default port 8001
 ./ape.exe -httpserver
 
 # Or specify custom port:
@@ -73,7 +72,7 @@ make install
 
 **Important**: Keep the APE server running while using the calculator. You should see:
 ```
-% Started server at http://localhost:8000/
+% Started server at http://localhost:8001/
 ```
 
 ### Step 4: Install Python Dependencies
@@ -305,8 +304,8 @@ Is Product-Widget available?        # → Yes
 ## APE Server Configuration
 
 ### Default Configuration
-- **Port**: 8000
-- **URL**: http://localhost:8000
+- **Port**: 8001
+- **URL**: http://localhost:8001
 
 ### Custom Configuration
 ```bash
@@ -319,7 +318,7 @@ Is Product-Widget available?        # → Yes
 ### Testing APE Server
 ```bash
 # Test if server is running
-curl "http://localhost:8000/?text=John is happy.&solo=drspp"
+curl "http://localhost:8001/?text=John is happy.&solo=drspp"
 ```
 
 ## Troubleshooting
@@ -327,7 +326,7 @@ curl "http://localhost:8000/?text=John is happy.&solo=drspp"
 ### APE Server Issues
 1. **"APE server not available"**
    - Ensure APE server is running: `./ape.exe -httpserver`
-   - Check firewall settings for port 8000
+   - Check firewall settings for port 8001
    - Verify SWI-Prolog installation
 
 2. **Compilation errors**
