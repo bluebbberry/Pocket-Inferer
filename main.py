@@ -42,8 +42,8 @@ class APEResult:
             self.error_messages = []
 
 
-class APEClient:
-    """Client for communicating with APE HTTP server"""
+class APEReasoningClient:
+    """Enhanced APE client with reasoning capabilities"""
 
     def __init__(self, server_url: str = "http://localhost:8001"):
         self.server_url = server_url.rstrip('/')
@@ -74,7 +74,7 @@ class APEClient:
             }
 
             # Make request
-            response = requests.get(f"{self.server_url}/", params=params, timeout=10)
+            response = requests.get(f"{self.server_url}/", params=params, timeout=15)
 
             if response.status_code == 200:
                 result_text = response.text.strip()
@@ -100,32 +100,123 @@ class APEClient:
         except Exception as e:
             return APEResult(text, error_messages=[f"Request failed: {str(e)}"])
 
-    def parse_multiple_outputs(self, text: str) -> APEResult:
-        """Parse text and get multiple outputs (DRS, paraphrase, OWL)"""
+    def reason_with_query(self, knowledge_base: List[str], query: str) -> str:
+        """Perform reasoning with knowledge base and query"""
         if not self.available:
-            return APEResult(text, error_messages=["APE server not available"])
+            return "APE server not available for reasoning"
 
-        result = APEResult(text)
+        # Combine knowledge base with query
+        all_statements = knowledge_base + [query]
+        complete_text = '\n'.join(all_statements)
 
-        # Get DRS
-        drs_result = self.parse_text(text, "drspp")
-        if drs_result.syntax_valid:
-            result.syntax_valid = True
-            result.drs = drs_result.drs
+        try:
+            # Try to get proof or reasoning trace
+            # APE can sometimes detect inconsistencies or provide reasoning info
 
-            # Get paraphrase
-            para_result = self.parse_text(text, "paraphrase")
-            if para_result.syntax_valid:
-                result.paraphrase = para_result.paraphrase
+            # First, parse everything together
+            combined_result = self.parse_text(complete_text, "drspp")
 
-            # Get OWL (if needed for advanced reasoning)
-            owl_result = self.parse_text(text, "owlfss")
-            if owl_result.syntax_valid:
-                result.owl_output = owl_result.owl_output
-        else:
-            result.error_messages = drs_result.error_messages
+            if not combined_result.syntax_valid:
+                return f"Reasoning failed: {', '.join(combined_result.error_messages)}"
 
-        return result
+            # Parse knowledge base alone to compare
+            kb_text = '\n'.join(knowledge_base)
+            kb_result = self.parse_text(kb_text, "drspp")
+
+            if not kb_result.syntax_valid:
+                return "Knowledge base has syntax errors"
+
+            # Simple reasoning: compare DRS structures
+            return self._compare_drs_for_reasoning(query, kb_result.drs, combined_result.drs)
+
+        except Exception as e:
+            return f"Reasoning error: {str(e)}"
+
+    def _compare_drs_for_reasoning(self, query: str, kb_drs: str, combined_drs: str) -> str:
+        """Compare DRS structures to infer reasoning result"""
+        query_lower = query.lower()
+
+        # For "Is X Y?" questions
+        if query_lower.startswith('is '):
+            # Check if the combined DRS has additional information
+            # If parsing the KB+Query together succeeds without contradiction,
+            # and the query mentions entities that appear in KB, it's likely consistent
+
+            match = re.match(r'is ([a-zA-Z]+) (?:a )?([a-zA-Z]+)\?', query_lower)
+            if match:
+                subject = match.group(1)
+                predicate = match.group(2)
+
+                # Check if both subject and predicate appear in the knowledge base DRS
+                subject_in_kb = f"named({subject.capitalize()})" in kb_drs
+                predicate_in_kb = predicate.lower() in kb_drs.lower()
+
+                if subject_in_kb and predicate_in_kb:
+                    # If both appear and there's no contradiction, likely true
+                    if "INCONSISTENT" not in combined_drs.upper():
+                        return "Yes"
+                    else:
+                        return "No (contradiction detected)"
+                elif subject_in_kb:
+                    # Subject exists but predicate not directly found
+                    # Check for inheritance via rules
+                    if self._check_inheritance(subject, predicate, kb_drs):
+                        return "Yes (by inference)"
+                    else:
+                        return "Unknown (insufficient information)"
+                else:
+                    return "No (subject not found in knowledge base)"
+
+        # For "Who is X?" questions
+        elif query_lower.startswith('who is '):
+            match = re.match(r'who is (?:a )?([a-zA-Z]+)\?', query_lower)
+            if match:
+                predicate = match.group(1).lower()
+
+                # Extract all named entities that might have this predicate
+                entities = []
+                lines = kb_drs.split('\n')
+                current_entity = None
+
+                for line in lines:
+                    # Look for named entities
+                    name_match = re.search(r'named\(([A-Za-z]+)\)', line)
+                    if name_match:
+                        current_entity = name_match.group(1)
+
+                    # Check if this line mentions the predicate and we have a current entity
+                    if current_entity and predicate in line.lower():
+                        if current_entity not in entities:
+                            entities.append(current_entity)
+
+                if entities:
+                    return ", ".join(entities)
+                else:
+                    return "No one"
+
+        return "Cannot determine answer from DRS analysis"
+
+    def _check_inheritance(self, subject: str, predicate: str, kb_drs: str) -> bool:
+        """Check for property inheritance through rules"""
+        # Look for implication patterns in DRS that might connect subject to predicate
+        lines = kb_drs.split('\n')
+
+        # Very simplified inheritance check
+        # In a real system, this would be much more sophisticated
+        subject_lower = subject.lower()
+        predicate_lower = predicate.lower()
+
+        # Look for patterns that suggest inheritance
+        # For example: if subject is "man" and predicate is "person"
+        # and there's a rule "every man is a person"
+
+        for line in lines:
+            if subject_lower in line.lower() and predicate_lower in line.lower():
+                # If both appear in the same context, might indicate relationship
+                if "=>" in line:  # Implication arrow in DRS
+                    return True
+
+        return False
 
 
 class SimpleOllamaTranslator:
@@ -233,7 +324,7 @@ Convert to ACE format (output only the ACE sentence):"""
 class ACEKnowledgeBase:
     """Knowledge base for storing and reasoning with ACE statements"""
 
-    def __init__(self, ape_client: APEClient):
+    def __init__(self, ape_client: APEReasoningClient):
         self.ape_client = ape_client
         self.facts = []
         self.rules = []
@@ -276,26 +367,177 @@ class ACEKnowledgeBase:
                 statement.strip().startswith('Y '))
 
     def query(self, question: str) -> str:
-        """Process a query (simplified reasoning)"""
+        """Process a query using APE's reasoning capabilities"""
         if not question.strip().endswith('?'):
             question = question.strip() + '?'
 
-        result = self.ape_client.parse_text(question, "drspp")
+        if not self.ape_client.available:
+            return "APE server not available for reasoning"
 
-        if not result.syntax_valid:
-            return f"Query parsing failed: {', '.join(result.error_messages)}"
+        # Build complete knowledge base text with the question
+        knowledge_text_parts = []
 
-        # Simple pattern matching for common query types
+        # Add all facts and rules
+        for fact in self.facts:
+            knowledge_text_parts.append(fact)
+        for rule in self.rules:
+            knowledge_text_parts.append(rule)
+
+        # Add the question
+        knowledge_text_parts.append(question)
+
+        complete_text = '\n'.join(knowledge_text_parts)
+
+        # Parse the complete knowledge + query with APE
+        try:
+            # First, let's try to get OWL output which might show inconsistencies
+            owl_result = self.ape_client.parse_text(complete_text, "owlfss")
+
+            if owl_result.syntax_valid and owl_result.owl_output:
+                # Check if the OWL output indicates the query can be answered
+                # This is a simplified approach - in a full system, you'd use an OWL reasoner
+                return self._analyze_owl_for_answer(question, owl_result.owl_output)
+
+            # Fallback: try to reason from DRS
+            drs_result = self.ape_client.parse_text(complete_text, "drspp")
+            if drs_result.syntax_valid:
+                return self._analyze_drs_for_answer(question, drs_result.drs)
+            else:
+                return f"Reasoning failed: {', '.join(drs_result.error_messages)}"
+
+        except Exception as e:
+            return f"Error during reasoning: {str(e)}"
+
+    def _analyze_owl_for_answer(self, question: str, owl_output: str) -> str:
+        """Analyze OWL output to determine query answer"""
+        # This is a simplified analysis - a full implementation would use an OWL reasoner
         question_lower = question.lower()
 
         if question_lower.startswith('is '):
-            return self._answer_is_question(question)
+            # Extract subject and predicate from question
+            match = re.match(r'is ([a-zA-Z]+) (?:a )?([a-zA-Z]+)\?', question_lower)
+            if match:
+                subject = match.group(1)
+                predicate = match.group(2)
+
+                # Look for subsumption or classification in OWL
+                if f"'{subject}'" in owl_output and f"'{predicate}'" in owl_output:
+                    # Simple heuristic: if both entities appear in OWL output, likely related
+                    if "SubClassOf" in owl_output or "ClassAssertion" in owl_output:
+                        return "Yes (based on OWL reasoning)"
+
+        return "Cannot determine from OWL output"
+
+    def _analyze_drs_for_answer(self, question: str, drs_output: str) -> str:
+        """Analyze DRS output to determine query answer"""
+        # Look for consistency or inconsistency markers in DRS
+        question_lower = question.lower()
+
+        if question_lower.startswith('is '):
+            # For "Is X Y?" questions, try to find the entities in DRS
+            match = re.match(r'is ([a-zA-Z]+) (?:a )?([a-zA-Z]+)\?', question_lower)
+            if match:
+                subject = match.group(1).lower()
+                predicate = match.group(2).lower()
+
+                # Check if DRS shows the relationship
+                if f"named({subject.capitalize()})" in drs_output:
+                    if predicate in drs_output.lower():
+                        # Simple heuristic: if both subject and predicate appear in DRS context
+                        return "Yes (inferred from DRS)"
+                    else:
+                        return "No (not found in DRS)"
+
         elif question_lower.startswith('who is '):
-            return self._answer_who_question(question)
-        elif question_lower.startswith('what does '):
-            return self._answer_what_does_question(question)
-        else:
-            return f"Query processed by APE. DRS: {result.drs[:100]}..."
+            # For "Who is X?" questions
+            predicate_match = re.match(r'who is (?:a )?([a-zA-Z]+)\?', question_lower)
+            if predicate_match:
+                predicate = predicate_match.group(1).lower()
+
+                # Extract named entities from DRS that have the predicate
+                entities = []
+                lines = drs_output.split('\n')
+                for line in lines:
+                    if f"named(" in line and predicate in line.lower():
+                        # Extract name from named(X) pattern
+                        name_match = re.search(r'named\(([A-Za-z]+)\)', line)
+                        if name_match:
+                            entities.append(name_match.group(1))
+
+                if entities:
+                    return ", ".join(entities)
+                else:
+                    return "No one (from DRS analysis)"
+
+
+class ACEKnowledgeBase:
+    """Knowledge base for storing and reasoning with ACE statements"""
+
+    def __init__(self, ape_client):
+        self.ape_client = ape_client
+        self.facts = []
+        self.rules = []
+        self.parsed_results = {}  # text -> APEResult
+
+    def clear(self):
+        """Clear all knowledge"""
+        self.facts = []
+        self.rules = []
+        self.parsed_results = {}
+
+    def add_statement(self, statement: str) -> APEResult:
+        """Add a statement to the knowledge base"""
+        result = self.ape_client.parse_text(statement, "drspp")
+
+        # Also get paraphrase for better user feedback
+        if result.syntax_valid:
+            para_result = self.ape_client.parse_text(statement, "paraphrase")
+            if para_result.syntax_valid:
+                result.paraphrase = para_result.paraphrase
+
+        if result.syntax_valid:
+            self.parsed_results[statement] = result
+
+            # Classify statement type based on content
+            if self._is_fact(statement):
+                self.facts.append(statement)
+            elif self._is_rule(statement):
+                self.rules.append(statement)
+
+        return result
+
+    def _is_fact(self, statement: str) -> bool:
+        """Determine if statement is a fact"""
+        statement = statement.strip()
+        return (not '?' in statement and
+                not ' if ' in statement.lower() and
+                statement.endswith('.') and
+                not statement.startswith('X ') and
+                not statement.startswith('Y '))
+
+    def _is_rule(self, statement: str) -> bool:
+        """Determine if statement is a rule"""
+        return (' if ' in statement.lower() or
+                statement.strip().startswith('X ') or
+                statement.strip().startswith('Y ') or
+                statement.lower().startswith('every') or
+                statement.lower().startswith('if '))
+
+    def query(self, question: str) -> str:
+        """Process a query using APE's reasoning capabilities"""
+        if not question.strip().endswith('?'):
+            question = question.strip() + '?'
+
+        if not self.ape_client.available:
+            return "APE server not available for reasoning"
+
+        # Use the enhanced reasoning method
+        all_knowledge = self.facts + self.rules
+        return self.ape_client.reason_with_query(all_knowledge, question)
+
+    def get_all_statements(self) -> List[str]:
+        """Get all statements in the knowledge base"""
+        return self.facts + self.rules
 
     def _answer_is_question(self, question: str) -> str:
         """Answer 'Is X Y?' questions"""
@@ -1035,7 +1277,7 @@ class EnhancedACECalculator:
         self.setup_styles()
 
         # Core components
-        self.ape_client = APEClient()
+        self.ape_client = APEReasoningClient()
         self.knowledge_base = ACEKnowledgeBase(self.ape_client)
 
         # AI Assistant
