@@ -1,39 +1,21 @@
 #!/usr/bin/env python3
 """
-ACE Logical Inference Calculator - Enhanced with IDE Mode
-A redesigned desktop application with calculator-like interface for logical reasoning
-Combines free-form text input with tagged template insertion
-Now includes IDE-like programming mode with file browser and enhanced code editing
+ACE Logical Inference Calculator - Enhanced with APE HTTP API Integration
+A desktop application for logical reasoning using Attempto Controlled English
+Now uses the official APE (Attempto Parsing Engine) via HTTP API for robust parsing
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 import csv
-import json
 import re
 import os
-from typing import List, Dict, Tuple, Set, Optional
+import requests
+import threading
+import json
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
-from pathlib import Path
-
-from ace_prolog_parser import ACEToPrologParser
-
-try:
-    import janus_swi as janus
-
-    PROLOG_AVAILABLE = True
-except ImportError:
-    PROLOG_AVAILABLE = False
-
-
-@dataclass
-class ACEStatement:
-    """Represents an ACE statement with its type and content"""
-    content: str
-    statement_type: str  # 'fact', 'rule', 'query'
-
-    def __str__(self):
-        return self.content
+import urllib.parse
 
 
 @dataclass
@@ -45,207 +27,649 @@ class ProjectFile:
     is_modified: bool = False
 
 
-class ACEParser:
-    """Enhanced ACE parser for logical statements"""
+@dataclass
+class APEResult:
+    """Represents APE parsing result"""
+    text: str
+    syntax_valid: bool = False
+    drs: str = ""
+    owl_output: str = ""
+    paraphrase: str = ""
+    error_messages: List[str] = None
 
-    def __init__(self):
-        self.fact_patterns = [
-            r'^[A-Z][a-zA-Z0-9_-]+ (is|are|has|have) .+\.$',
-            r'^[A-Z][a-zA-Z0-9_-]+ .+ [a-zA-Z0-9_-]+\.$'
-        ]
-        self.rule_patterns = [
-            r'^.+ if .+\.$',
-            r'^If .+ then .+\.$'
-        ]
-        self.query_patterns = [
-            r'^.+\?$',
-            r'^(Is|Are|Does|Do|Who|What|When|Where|Why|How) .+\?$'
-        ]
+    def __post_init__(self):
+        if self.error_messages is None:
+            self.error_messages = []
 
-    def parse_statement(self, text: str) -> ACEStatement:
-        """Parse a single ACE statement"""
-        text = text.strip()
 
-        if any(re.match(pattern, text, re.IGNORECASE) for pattern in self.query_patterns):
-            return ACEStatement(text, 'query')
-        elif any(re.match(pattern, text, re.IGNORECASE) for pattern in self.rule_patterns):
-            return ACEStatement(text, 'rule')
-        elif any(re.match(pattern, text) for pattern in self.fact_patterns) or text.endswith('.'):
-            return ACEStatement(text, 'fact')
+class APEClient:
+    """Client for communicating with APE HTTP server"""
+
+    def __init__(self, server_url: str = "http://localhost:8000"):
+        self.server_url = server_url.rstrip('/')
+        self.available = False
+        self.check_availability()
+
+    def check_availability(self):
+        """Check if APE server is available"""
+        try:
+            response = requests.get(f"{self.server_url}/?text=Test.", timeout=3)
+            self.available = response.status_code == 200
+            return self.available
+        except Exception as e:
+            print(f"APE server not available: {e}")
+            self.available = False
+            return False
+
+    def parse_text(self, text: str, output_format: str = "drspp") -> APEResult:
+        """Parse ACE text using APE server"""
+        if not self.available:
+            return APEResult(text, error_messages=["APE server not available"])
+
+        try:
+            # Prepare parameters
+            params = {
+                'text': text.strip(),
+                'solo': output_format
+            }
+
+            # Make request
+            response = requests.get(f"{self.server_url}/", params=params, timeout=10)
+
+            if response.status_code == 200:
+                result_text = response.text.strip()
+
+                # Check for parsing errors
+                if "error" in result_text.lower() or "syntax error" in result_text.lower():
+                    return APEResult(text, syntax_valid=False, error_messages=[result_text])
+
+                # Successful parse
+                result = APEResult(text, syntax_valid=True)
+
+                if output_format == "drspp":
+                    result.drs = result_text
+                elif output_format == "paraphrase":
+                    result.paraphrase = result_text
+                elif output_format == "owlfss":
+                    result.owl_output = result_text
+
+                return result
+            else:
+                return APEResult(text, error_messages=[f"HTTP {response.status_code}: {response.text}"])
+
+        except Exception as e:
+            return APEResult(text, error_messages=[f"Request failed: {str(e)}"])
+
+    def parse_multiple_outputs(self, text: str) -> APEResult:
+        """Parse text and get multiple outputs (DRS, paraphrase, OWL)"""
+        if not self.available:
+            return APEResult(text, error_messages=["APE server not available"])
+
+        result = APEResult(text)
+
+        # Get DRS
+        drs_result = self.parse_text(text, "drspp")
+        if drs_result.syntax_valid:
+            result.syntax_valid = True
+            result.drs = drs_result.drs
+
+            # Get paraphrase
+            para_result = self.parse_text(text, "paraphrase")
+            if para_result.syntax_valid:
+                result.paraphrase = para_result.paraphrase
+
+            # Get OWL (if needed for advanced reasoning)
+            owl_result = self.parse_text(text, "owlfss")
+            if owl_result.syntax_valid:
+                result.owl_output = owl_result.owl_output
         else:
-            # Default to fact if uncertain
-            return ACEStatement(text + '.' if not text.endswith('.') else text, 'fact')
+            result.error_messages = drs_result.error_messages
 
-    def parse_text(self, text: str) -> List[ACEStatement]:
-        """Parse multiple ACE statements from text"""
-        statements = []
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-        for line in lines:
-            if line and not line.startswith('#'):  # Skip comments
-                statements.append(self.parse_statement(line))
-
-        return statements
+        return result
 
 
-class SimplePrologEngine:
-    """Improved Prolog engine with better error handling"""
+class SimpleOllamaTranslator:
+    """Simple Ollama translator for natural language to ACE"""
 
-    def __init__(self):
-        self.prolog_available = PROLOG_AVAILABLE
+    def __init__(self, ollama_url: str = "http://localhost:11434", model: str = "mistral:latest"):
+        self.ollama_url = ollama_url.rstrip('/')
+        self.model = model
+        self.available = self._check_availability()
+
+        self.system_prompt = """Convert this natural language to ACE (Attempto Controlled English) format.
+
+ACE Rules:
+- Facts: "John is happy." or "Mary likes chocolate."
+- Rules: "X is happy if X likes chocolate." (use X, Y variables)
+- Questions: "Is John happy?" or "Who is happy?"
+
+Examples:
+"John is a happy person" → "John is happy."
+"If someone likes chocolate they become happy" → "X is happy if X likes chocolate."
+"Who is happy" → "Who is happy?"
+
+Convert to ACE format (output only the ACE sentence):"""
+
+    def _check_availability(self) -> bool:
+        """Check if Ollama is running"""
+        try:
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=3)
+            return response.status_code == 200
+        except:
+            return False
+
+    def translate(self, text: str) -> Optional[str]:
+        """Translate natural language to ACE"""
+        if not self.available:
+            return self._simple_fallback(text)
+
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": f"{self.system_prompt}\n\n{text}",
+                    "stream": False,
+                    "options": {"temperature": 0.1, "max_tokens": 100}
+                },
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                result = response.json()['response'].strip()
+                return self._clean_result(result)
+
+        except Exception as e:
+            print(f"Ollama error: {e}")
+
+        return self._simple_fallback(text)
+
+    def _clean_result(self, result: str) -> str:
+        """Clean Ollama output"""
+        for line in result.split('\n'):
+            line = line.strip().strip('"\'')
+            if line and (line.endswith('.') or line.endswith('?')):
+                return self._capitalize_names(line)
+
+        first_line = result.split('\n')[0].strip().strip('"\'')
+        if not first_line.endswith(('.', '?')):
+            first_line += '.'
+        return self._capitalize_names(first_line)
+
+    def _capitalize_names(self, text: str) -> str:
+        """Capitalize proper names"""
+        words = text.split()
+        common_words = {'is', 'are', 'has', 'have', 'likes', 'like', 'if', 'then', 'who', 'what', 'does'}
+
+        result = []
+        for i, word in enumerate(words):
+            if word.upper() in ['X', 'Y']:
+                result.append(word.upper())
+            elif i == 0 or (word.lower() not in common_words and word.isalpha()):
+                result.append(word.capitalize())
+            else:
+                result.append(word.lower())
+
+        return ' '.join(result)
+
+    def _simple_fallback(self, text: str) -> str:
+        """Simple pattern-based fallback"""
+        text = text.strip().lower()
+
+        if re.match(r'(.+) is (.+)', text):
+            match = re.match(r'(.+) is (.+)', text)
+            return f"{match.group(1).capitalize()} is {match.group(2)}."
+        elif re.match(r'(.+) likes? (.+)', text):
+            match = re.match(r'(.+) likes? (.+)', text)
+            return f"{match.group(1).capitalize()} likes {match.group(2)}."
+        elif text.startswith('who'):
+            return f"{text.capitalize()}?"
+        elif text.startswith('is '):
+            return f"{text.capitalize()}?"
+        else:
+            return f"{text.capitalize()}."
+
+
+class ACEKnowledgeBase:
+    """Knowledge base for storing and reasoning with ACE statements"""
+
+    def __init__(self, ape_client: APEClient):
+        self.ape_client = ape_client
         self.facts = []
         self.rules = []
-        self.parser = ACEToPrologParser() if PROLOG_AVAILABLE else None
-
-        if self.prolog_available:
-            try:
-                # Test Prolog availability
-                list(janus.query("true"))
-                print("Prolog engine initialized successfully")
-            except Exception as e:
-                print(f"Error initializing Prolog: {e}")
-                self.prolog_available = False
+        self.parsed_results = {}  # text -> APEResult
 
     def clear(self):
         """Clear all knowledge"""
         self.facts = []
         self.rules = []
+        self.parsed_results = {}
 
-        if self.prolog_available:
-            try:
-                # Clear all dynamic predicates
-                predicates_to_clear = [
-                    "person(_)", "likes(_, _)", "happy(_)", "has_property(_, _, _)",
-                    "sad(_)", "tall(_)", "smart(_)", "young(_)", "old(_)"
-                ]
-                for pred in predicates_to_clear:
-                    try:
-                        list(janus.query(f"retractall({pred})"))
-                    except:
-                        pass
-            except Exception as e:
-                print(f"Error clearing Prolog knowledge: {e}")
+    def add_statement(self, statement: str) -> APEResult:
+        """Add a statement to the knowledge base"""
+        result = self.ape_client.parse_multiple_outputs(statement)
 
-    def add_fact(self, ace_fact: str):
-        """Add a fact to the Prolog knowledge base"""
-        self.facts.append(ace_fact)
-        if not self.prolog_available:
+        if result.syntax_valid:
+            self.parsed_results[statement] = result
+
+            # Classify statement type based on content
+            if self._is_fact(statement):
+                self.facts.append(statement)
+            elif self._is_rule(statement):
+                self.rules.append(statement)
+
+        return result
+
+    def _is_fact(self, statement: str) -> bool:
+        """Determine if statement is a fact"""
+        statement = statement.strip()
+        return (not '?' in statement and
+                not ' if ' in statement.lower() and
+                statement.endswith('.') and
+                not statement.startswith('X ') and
+                not statement.startswith('Y '))
+
+    def _is_rule(self, statement: str) -> bool:
+        """Determine if statement is a rule"""
+        return (' if ' in statement.lower() or
+                statement.strip().startswith('X ') or
+                statement.strip().startswith('Y '))
+
+    def query(self, question: str) -> str:
+        """Process a query (simplified reasoning)"""
+        if not question.strip().endswith('?'):
+            question = question.strip() + '?'
+
+        result = self.ape_client.parse_text(question, "drspp")
+
+        if not result.syntax_valid:
+            return f"Query parsing failed: {', '.join(result.error_messages)}"
+
+        # Simple pattern matching for common query types
+        question_lower = question.lower()
+
+        if question_lower.startswith('is '):
+            return self._answer_is_question(question)
+        elif question_lower.startswith('who is '):
+            return self._answer_who_question(question)
+        elif question_lower.startswith('what does '):
+            return self._answer_what_does_question(question)
+        else:
+            return f"Query processed by APE. DRS: {result.drs[:100]}..."
+
+    def _answer_is_question(self, question: str) -> str:
+        """Answer 'Is X Y?' questions"""
+        # Extract the subject and predicate
+        match = re.match(r'is ([a-zA-Z]+) ([a-zA-Z]+)\?', question.lower())
+        if not match:
+            return "Cannot parse question"
+
+        subject = match.group(1).capitalize()
+        predicate = match.group(2).lower()
+
+        # Check direct facts
+        for fact in self.facts:
+            if f"{subject} is {predicate}" in fact.lower():
+                return "Yes"
+
+        # Apply rules (simplified)
+        for rule in self.rules:
+            if self._can_derive_from_rule(subject, predicate, rule):
+                return "Yes"
+
+        return "No (or cannot determine)"
+
+    def _answer_who_question(self, question: str) -> str:
+        """Answer 'Who is X?' questions"""
+        match = re.match(r'who is ([a-zA-Z]+)\?', question.lower())
+        if not match:
+            return "Cannot parse question"
+
+        predicate = match.group(1).lower()
+        subjects = []
+
+        # Check direct facts
+        for fact in self.facts:
+            fact_match = re.search(r'([A-Z][a-zA-Z]+) is ' + predicate, fact)
+            if fact_match:
+                subjects.append(fact_match.group(1))
+
+        # Apply rules (simplified)
+        for fact in self.facts:
+            for rule in self.rules:
+                derived_subject = self._derive_who_from_rule(predicate, fact, rule)
+                if derived_subject and derived_subject not in subjects:
+                    subjects.append(derived_subject)
+
+        return ', '.join(subjects) if subjects else "No one (or cannot determine)"
+
+    def _answer_what_does_question(self, question: str) -> str:
+        """Answer 'What does X like?' questions"""
+        match = re.match(r'what does ([a-zA-Z]+) like\?', question.lower())
+        if not match:
+            return "Cannot parse question"
+
+        subject = match.group(1).capitalize()
+        objects = []
+
+        # Check direct facts
+        for fact in self.facts:
+            fact_match = re.search(f'{subject} likes ([a-zA-Z]+)', fact)
+            if fact_match:
+                objects.append(fact_match.group(1))
+
+        return ', '.join(objects) if objects else "Nothing found"
+
+    def _can_derive_from_rule(self, subject: str, predicate: str, rule: str) -> bool:
+        """Check if we can derive a fact from a rule"""
+        # Very simplified rule matching
+        rule_lower = rule.lower()
+        if f"x is {predicate} if" in rule_lower:
+            # Extract condition
+            condition_match = re.search(r'if (.+)\.', rule_lower)
+            if condition_match:
+                condition = condition_match.group(1)
+                condition_with_subject = condition.replace('x', subject.lower())
+
+                # Check if condition is satisfied by facts
+                for fact in self.facts:
+                    if condition_with_subject in fact.lower():
+                        return True
+        return False
+
+    def _derive_who_from_rule(self, predicate: str, fact: str, rule: str) -> Optional[str]:
+        """Derive who satisfies a predicate using rules"""
+        rule_lower = rule.lower()
+        if f"x is {predicate} if" in rule_lower:
+            condition_match = re.search(r'if (.+)\.', rule_lower)
+            if condition_match:
+                condition = condition_match.group(1)
+
+                # Extract subject from fact and check if it satisfies condition
+                for subject_match in re.finditer(r'([A-Z][a-zA-Z]+)', fact):
+                    subject = subject_match.group(1)
+                    condition_with_subject = condition.replace('x', subject.lower())
+
+                    if condition_with_subject in fact.lower():
+                        return subject
+        return None
+
+    def get_all_statements(self) -> List[str]:
+        """Get all statements in the knowledge base"""
+        return self.facts + self.rules
+
+
+class CSVMappingDialog:
+    """Dialog for editing LLM-generated CSV to ACE mapping"""
+
+    def __init__(self, parent, headers, sample_row, ai_translator):
+        self.parent = parent
+        self.headers = headers
+        self.sample_row = sample_row
+        self.ai_translator = ai_translator
+        self.result = None
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("CSV to ACE Mapping")
+        self.dialog.geometry("900x500")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self.setup_ui()
+        self.generate_initial_mapping()
+
+    def setup_ui(self):
+        """Setup the mapping dialog UI"""
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # Title
+        title_label = ttk.Label(main_frame, text="CSV to ACE Logic Mapping",
+                                font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+
+        # Sample data display
+        sample_frame = ttk.LabelFrame(main_frame, text="Sample CSV Row", padding=10)
+        sample_frame.pack(fill='x', pady=(0, 15))
+
+        sample_display = tk.Text(sample_frame, height=2, font=('Consolas', 9),
+                                 state='disabled', bg='#f8f9fa')
+        sample_display.pack(fill='x')
+
+        # Display sample data
+        sample_display.config(state='normal')
+        sample_content = " | ".join([f"{h}: {v}" for h, v in zip(self.headers, self.sample_row)])
+        sample_display.insert('1.0', sample_content)
+        sample_display.config(state='disabled')
+
+        # Main mapping section - two columns
+        mapping_frame = ttk.LabelFrame(main_frame, text="Row Mapping", padding=15)
+        mapping_frame.pack(fill='both', expand=True, pady=(0, 15))
+
+        # Create two-column layout
+        columns_container = ttk.Frame(mapping_frame)
+        columns_container.pack(fill='both', expand=True)
+
+        # Left column - Column names
+        left_column = ttk.Frame(columns_container)
+        left_column.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+        ttk.Label(left_column, text="CSV Columns:", font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        self.columns_display = tk.Text(left_column, font=('Consolas', 10),
+                                       state='disabled', bg='#f8f9fa', width=35)
+        self.columns_display.pack(fill='both', expand=True)
+
+        # Right column - ACE template
+        right_column = ttk.Frame(columns_container)
+        right_column.pack(side='right', fill='both', expand=True, padx=(10, 0))
+
+        ttk.Label(right_column, text="ACE Statements (use <column_name> tags):",
+                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        self.ace_template = scrolledtext.ScrolledText(right_column, font=('Consolas', 10),
+                                                      wrap='word', width=50)
+        self.ace_template.pack(fill='both', expand=True)
+
+        # Fill columns display
+        self.populate_columns_display()
+
+        # Preview section
+        preview_frame = ttk.LabelFrame(main_frame, text="Preview (Applied to Sample Row)", padding=10)
+        preview_frame.pack(fill='x', pady=(0, 15))
+
+        self.preview_text = scrolledtext.ScrolledText(preview_frame, height=4,
+                                                      font=('Consolas', 10), state='disabled',
+                                                      bg='#f0f8ff')
+        self.preview_text.pack(fill='x')
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x')
+
+        ttk.Button(button_frame, text="Generate AI Mapping",
+                   command=self.generate_initial_mapping).pack(side='left', padx=(0, 10))
+        ttk.Button(button_frame, text="Update Preview",
+                   command=self.update_preview).pack(side='left', padx=(0, 10))
+
+        ttk.Button(button_frame, text="Cancel",
+                   command=self.cancel).pack(side='right', padx=(10, 0))
+        ttk.Button(button_frame, text="Apply Mapping",
+                   command=self.apply_mapping).pack(side='right', padx=(10, 0))
+
+        # Bind template changes to preview update
+        self.ace_template.bind('<KeyRelease>', lambda e: self.root.after(1000, self.update_preview))
+
+    def populate_columns_display(self):
+        """Fill the columns display with CSV column names and sample values"""
+        self.columns_display.config(state='normal')
+        self.columns_display.delete('1.0', 'end')
+
+        content = []
+        for i, (header, value) in enumerate(zip(self.headers, self.sample_row), 1):
+            content.append(f"{i:2d}. {header}")
+            content.append(f"    Sample: {value}")
+            content.append("")
+
+        self.columns_display.insert('1.0', '\n'.join(content))
+        self.columns_display.config(state='disabled')
+
+    def generate_initial_mapping(self):
+        """Generate initial mapping using AI"""
+        if not self.ai_translator.available:
+            self.generate_fallback_mapping()
             return
 
-        prolog_fact = self.parser.ace_to_prolog_fact(ace_fact)
-        if prolog_fact:
-            try:
-                # Use query instead of query_once for better error handling
-                list(janus.query(f"assertz({prolog_fact})"))
-                print(f"Added fact: {prolog_fact}")
-            except Exception as e:
-                print(f"Error adding fact {prolog_fact}: {e}")
+        headers_text = ", ".join(self.headers)
+        sample_text = " | ".join([f"{h}={v}" for h, v in zip(self.headers, self.sample_row)])
 
-    def add_rule(self, ace_rule: str):
-        """Add a rule to the Prolog knowledge base"""
-        self.rules.append(ace_rule)
-        if not self.prolog_available:
+        prompt = f"""Convert this CSV structure to ACE (Attempto Controlled English) statements.
+
+CSV Columns: {headers_text}
+Sample Row: {sample_text}
+
+Generate ACE statements using <column_name> tags for substitution.
+
+Example:
+For columns: name, age, city
+ACE output: <name> is a person. <name> has age <age>. <name> lives in <city>.
+
+Generate concise ACE statements for these columns:"""
+
+        try:
+            response = self.generate_mapping_with_ai(prompt)
+            if response:
+                self.parse_ai_response(response)
+            else:
+                self.generate_fallback_mapping()
+        except:
+            self.generate_fallback_mapping()
+
+    def generate_mapping_with_ai(self, prompt):
+        """Generate mapping using AI translator"""
+        try:
+            response = requests.post(
+                f"{self.ai_translator.ollama_url}/api/generate",
+                json={
+                    "model": self.ai_translator.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "max_tokens": 150}
+                },
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                return response.json()['response'].strip()
+        except:
+            pass
+        return None
+
+    def parse_ai_response(self, response):
+        """Parse AI response and extract ACE statements"""
+        lines = response.split('\n')
+        ace_statements = []
+
+        for line in lines:
+            line = line.strip()
+            # Look for lines that contain angle bracket tags and look like ACE statements
+            if '<' in line and '>' in line and (line.endswith('.') or line.endswith('?')):
+                ace_statements.append(line)
+
+        # If no proper statements found, try to extract any line with angle brackets
+        if not ace_statements:
+            for line in lines:
+                line = line.strip()
+                if '<' in line and '>' in line and line:
+                    # Ensure it ends with proper punctuation
+                    if not line.endswith(('.', '?', '!')):
+                        line += '.'
+                    ace_statements.append(line)
+
+        # Set the template
+        if ace_statements:
+            self.ace_template.delete('1.0', 'end')
+            self.ace_template.insert('1.0', '\n'.join(ace_statements))
+        else:
+            self.generate_fallback_mapping()
+
+        self.update_preview()
+
+    def generate_fallback_mapping(self):
+        """Generate simple fallback mapping when AI fails"""
+        statements = []
+
+        if len(self.headers) >= 1:
+            first_col = self.headers[0]
+
+            # For remaining columns, create has/property statements
+            for header in self.headers[1:]:
+                clean_prop = header.lower().replace('_', ' ').replace('-', ' ')
+                statements.append(f"<{first_col}> has {clean_prop} <{header}>.")
+
+        self.ace_template.delete('1.0', 'end')
+        self.ace_template.insert('1.0', '\n'.join(statements))
+        self.update_preview()
+
+    def update_preview(self):
+        """Update preview with sample data applied to template"""
+        template_text = self.ace_template.get('1.0', 'end-1c').strip()
+
+        if not template_text:
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', "No template defined")
+            self.preview_text.config(state='disabled')
             return
 
-        prolog_rule = self.parser.ace_to_prolog_rule(ace_rule)
-        if prolog_rule:
-            try:
-                # Use query and proper rule syntax
-                list(janus.query(f"assertz(({prolog_rule}))"))
-                print(f"Added rule: {prolog_rule}")
-            except Exception as e:
-                print(f"Error adding rule {prolog_rule}: {e}")
+        # Create substitution dictionary
+        substitutions = {}
+        for header, value in zip(self.headers, self.sample_row):
+            substitutions[header] = value
 
-    def query(self, ace_query: str) -> str:
-        """Query the Prolog knowledge base"""
-        if not self.prolog_available:
-            return "Prolog not available"
-
-        ace_query = ace_query.strip().rstrip('?')
+        preview_lines = []
 
         try:
-            # Is X Y? queries
-            if ace_query.lower().startswith('is '):
-                query_content = ace_query[3:].strip()
+            # Apply substitutions to each line
+            for line in template_text.split('\n'):
+                line = line.strip()
+                if line:
+                    # Replace <column_name> tags with actual values
+                    result_line = line
+                    for header, value in substitutions.items():
+                        tag = f"<{header}>"
+                        if tag in result_line:
+                            result_line = result_line.replace(tag, value)
 
-                # Pattern: is X happy
-                if re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content):
-                    match = re.match(r'^([a-zA-Z][a-zA-Z0-9_]*) ([a-zA-Z][a-zA-Z0-9_]*)', query_content)
-                    entity = self.parser.normalize_entity(match.group(1))
-                    property_name = self.parser.normalize_entity(match.group(2))
+                    preview_lines.append(result_line)
 
-                    results = list(janus.query(f"{property_name}({entity})"))
-                    return "Yes" if results else "No"
-
-            # Who is X? queries
-            elif ace_query.lower().startswith('who is '):
-                property_name = ace_query[7:].strip().lower()
-                property_name = self.parser.normalize_entity(property_name)
-
-                try:
-                    results = list(janus.query(f"{property_name}(X)"))
-                    if results:
-                        entities = [result['X'].title() for result in results]
-                        return ', '.join(entities)
-                    else:
-                        return "No one"
-                except Exception:
-                    return "Cannot answer this query"
-
-            # What does X like? queries
-            elif re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower()):
-                match = re.match(r'^what does ([a-zA-Z][a-zA-Z0-9_]*) like', ace_query.lower())
-                entity = self.parser.normalize_entity(match.group(1))
-
-                try:
-                    results = list(janus.query(f"likes({entity}, X)"))
-                    if results:
-                        objects = [result['X'].title() for result in results]
-                        return ', '.join(objects)
-                    else:
-                        return "Nothing found"
-                except Exception:
-                    return "Cannot answer this query"
+            # Update preview display
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', '\n'.join(preview_lines))
+            self.preview_text.config(state='disabled')
 
         except Exception as e:
-            print(f"Query error: {e}")
-            return f"Error in query: {str(e)}"
+            self.preview_text.config(state='normal')
+            self.preview_text.delete('1.0', 'end')
+            self.preview_text.insert('1.0', f"Preview error: {str(e)}")
+            self.preview_text.config(state='disabled')
 
-        return "Cannot answer this type of query"
+    def apply_mapping(self):
+        """Apply the mapping and close dialog"""
+        template_text = self.ace_template.get('1.0', 'end-1c').strip()
 
-    def get_all_facts(self) -> List[str]:
-        """Get all derived facts from Prolog"""
-        if not self.prolog_available:
-            return []
+        if not template_text:
+            messagebox.showwarning("Warning", "Please define ACE template statements")
+            return
 
-        all_facts = []
-        try:
-            # Get persons
-            for result in janus.query("person(X)"):
-                all_facts.append(f"{result['X'].title()} is a person")
+        self.result = template_text
+        self.dialog.destroy()
 
-            # Get happy entities
-            for result in janus.query("happy(X)"):
-                all_facts.append(f"{result['X'].title()} is happy")
-
-            # Get likes relationships
-            for result in janus.query("likes(X, Y)"):
-                all_facts.append(f"{result['X'].title()} likes {result['Y'].title()}")
-
-            # Get properties
-            for result in janus.query("has_property(X, P, V)"):
-                prop = result['P'].replace('_', ' ')
-                all_facts.append(f"{result['X'].title()} has {prop} {result['V']}")
-
-            # Get other properties
-            for prop in ['sad', 'tall', 'smart', 'young', 'old']:
-                for result in janus.query(f"{prop}(X)"):
-                    all_facts.append(f"{result['X'].title()} is {prop}")
-
-        except Exception as e:
-            print(f"Error getting facts: {e}")
-
-        return all_facts
+    def cancel(self):
+        """Cancel the dialog"""
+        self.result = None
+        self.dialog.destroy()
 
 
 class CSVProcessor:
@@ -264,26 +688,29 @@ class CSVProcessor:
             raise Exception(f"Error loading CSV: {str(e)}")
 
     @staticmethod
-    def convert_to_ace_facts(headers: List[str], data: List[Dict[str, str]],
-                             entity_prefix: str = "Entity") -> List[str]:
-        """Convert CSV data to ACE facts"""
+    def convert_to_ace_facts_with_template(headers: List[str], data: List[Dict[str, str]],
+                                           ace_template: str) -> List[str]:
+        """Convert CSV data to ACE facts using template with <column_name> tags"""
         facts = []
 
         for i, row in enumerate(data):
-            entity_name = f"{entity_prefix}-{i + 1}"
+            # Process each line of the template
+            for line in ace_template.split('\n'):
+                line = line.strip()
+                if line:
+                    # Replace <column_name> tags with actual values
+                    result_line = line
+                    for header in headers:
+                        tag = f"<{header}>"
+                        if tag in result_line:
+                            value = row.get(header, '').strip()
+                            result_line = result_line.replace(tag, value)
 
-            for header in headers:
-                value = row.get(header, '').strip()
-                if value:
-                    clean_header = header.lower().replace(' ', '-').replace('_', '-')
-                    clean_value = value.replace(' ', '-')
-
-                    if value.isdigit():
-                        fact = f"{entity_name} has {clean_header} {value}."
-                    else:
-                        fact = f"{entity_name} has {clean_header} {clean_value}."
-
-                    facts.append(fact)
+                    # Only add if all tags were replaced (no < > remaining)
+                    if '<' not in result_line or '>' not in result_line:
+                        if not result_line.endswith('.') and not result_line.endswith('?'):
+                            result_line += '.'
+                        facts.append(result_line)
 
         return facts
 
@@ -388,7 +815,7 @@ class FileExplorer:
 
     def new_file(self):
         """Create new file"""
-        filename = tk.simpledialog.askstring("New File", "Enter filename:", initialvalue="untitled.ace")
+        filename = simpledialog.askstring("New File", "Enter filename:", initialvalue="untitled.ace")
         if filename:
             path = os.path.join(self.current_directory, filename)
             file_obj = ProjectFile(
@@ -437,7 +864,7 @@ class CodeEditor:
         numbers_frame = tk.Frame(tab_frame, width=50, bg='#f0f0f0')
         numbers_frame.pack(side='left', fill='y')
 
-        self.line_numbers = tk.Text(
+        line_numbers = tk.Text(
             numbers_frame,
             width=4,
             padx=3,
@@ -447,7 +874,7 @@ class CodeEditor:
             bg='#f0f0f0',
             font=('Consolas', 10)
         )
-        self.line_numbers.pack(fill='y', expand=True)
+        line_numbers.pack(fill='y', expand=True)
 
         # Create text widget
         text_widget = scrolledtext.ScrolledText(
@@ -466,14 +893,14 @@ class CodeEditor:
         self.setup_syntax_highlighting(text_widget)
 
         # Bind events
-        text_widget.bind('<KeyRelease>', lambda e: self.update_line_numbers(text_widget))
-        text_widget.bind('<Button-1>', lambda e: self.update_line_numbers(text_widget))
-        text_widget.bind('<MouseWheel>', lambda e: self.sync_scroll(text_widget, e))
+        text_widget.bind('<KeyRelease>', lambda e: self.update_line_numbers(text_widget, line_numbers))
+        text_widget.bind('<Button-1>', lambda e: self.update_line_numbers(text_widget, line_numbers))
+        text_widget.bind('<MouseWheel>', lambda e: self.sync_scroll(text_widget, line_numbers, e))
 
         # Store references
         tab_frame.text_widget = text_widget
         tab_frame.file_obj = file_obj
-        tab_frame.line_numbers = self.line_numbers
+        tab_frame.line_numbers = line_numbers
 
         # Add tab to notebook
         tab_name = file_obj.name + ("*" if file_obj.is_modified else "")
@@ -485,7 +912,7 @@ class CodeEditor:
         self.current_file = file_obj
 
         # Update line numbers
-        self.update_line_numbers(text_widget)
+        self.update_line_numbers(text_widget, line_numbers)
 
     def setup_syntax_highlighting(self, text_widget):
         """Setup basic syntax highlighting for ACE"""
@@ -503,7 +930,8 @@ class CodeEditor:
                 text_widget.tag_remove(tag, '1.0', 'end')
 
             # Highlight keywords
-            keywords = ['is', 'are', 'if', 'then', 'who', 'what', 'does', 'like', 'has', 'have']
+            keywords = ['is', 'are', 'if', 'then', 'who', 'what', 'does', 'like', 'has', 'have', 'every', 'all', 'some',
+                        'no']
             for keyword in keywords:
                 start = '1.0'
                 while True:
@@ -538,25 +966,21 @@ class CodeEditor:
         text_widget.bind('<KeyRelease>', highlight_syntax)
         text_widget.after(100, highlight_syntax)
 
-    def update_line_numbers(self, text_widget):
+    def update_line_numbers(self, text_widget, line_numbers):
         """Update line numbers"""
-        if not hasattr(self, 'line_numbers'):
-            return
-
         line_count = int(text_widget.index('end').split('.')[0])
 
-        self.line_numbers.config(state='normal')
-        self.line_numbers.delete('1.0', 'end')
+        line_numbers.config(state='normal')
+        line_numbers.delete('1.0', 'end')
 
         for i in range(1, line_count):
-            self.line_numbers.insert('end', f"{i:>3}\n")
+            line_numbers.insert('end', f"{i:>3}\n")
 
-        self.line_numbers.config(state='disabled')
+        line_numbers.config(state='disabled')
 
-    def sync_scroll(self, text_widget, event):
+    def sync_scroll(self, text_widget, line_numbers, event):
         """Sync scrolling between text and line numbers"""
-        if hasattr(self, 'line_numbers'):
-            self.line_numbers.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        line_numbers.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def on_tab_change(self, event):
         """Handle tab change"""
@@ -596,11 +1020,11 @@ class CodeEditor:
 
 
 class EnhancedACECalculator:
-    """Enhanced ACE Calculator with IDE mode"""
+    """Enhanced ACE Calculator with APE HTTP API integration"""
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ACE Logic Calculator")
+        self.root.title("ACE Logic Calculator with APE Integration")
         self.root.geometry("1200x900")
         self.root.configure(bg='#2c3e50')
 
@@ -611,8 +1035,11 @@ class EnhancedACECalculator:
         self.setup_styles()
 
         # Core components
-        self.parser = ACEParser()
-        self.inference_engine = SimplePrologEngine()
+        self.ape_client = APEClient()
+        self.knowledge_base = ACEKnowledgeBase(self.ape_client)
+
+        # AI Assistant
+        self.ai_translator = SimpleOllamaTranslator()
 
         # UI components
         self.setup_ui()
@@ -670,8 +1097,12 @@ class EnhancedACECalculator:
         )
         self.mode_button.pack(side='right')
 
-        # Title
-        title_label = ttk.Label(mode_frame, text="ACE Logic Calculator", style='Title.TLabel')
+        # Title with APE status
+        title_text = "ACE Logic Calculator with APE"
+        if not self.ape_client.available:
+            title_text += " (APE Server Offline)"
+
+        title_label = ttk.Label(mode_frame, text=title_text, style='Title.TLabel')
         title_label.pack(side='left')
 
         # Create calculator sections
@@ -704,7 +1135,7 @@ class EnhancedACECalculator:
         self.mode_button.pack(side='right')
 
         # Title
-        title_label = ttk.Label(mode_frame, text="Programming Mode", style='Title.TLabel')
+        title_label = ttk.Label(mode_frame, text="Programming Mode with APE", style='Title.TLabel')
         title_label.pack(side='left')
 
         # Create IDE layout
@@ -744,22 +1175,22 @@ class EnhancedACECalculator:
         results_frame = ttk.Frame(right_panel, height=250)
         right_panel.add(results_frame, weight=1)
 
-        results_label = ttk.Label(results_frame, text="Results & Output", style='Subtitle.TLabel')
+        results_label = ttk.Label(results_frame, text="APE Analysis & Results", style='Subtitle.TLabel')
         results_label.pack(pady=(10, 5))
 
         # Control buttons
         control_frame = tk.Frame(results_frame, bg=self.colors['card'])
         control_frame.pack(fill='x', padx=10, pady=5)
 
-        tk.Button(control_frame, text="▶️ Execute", command=self.execute_ide_code,
+        tk.Button(control_frame, text="Parse with APE", command=self.parse_ide_code,
                   bg=self.colors['success'], fg='white', font=('Arial', 9, 'bold'),
                   padx=15, pady=5).pack(side='left', padx=5)
 
-        tk.Button(control_frame, text="💾 Save", command=self.save_current_file,
+        tk.Button(control_frame, text="Save", command=self.save_current_file,
                   bg=self.colors['accent'], fg='white', font=('Arial', 9, 'bold'),
                   padx=15, pady=5).pack(side='left', padx=5)
 
-        tk.Button(control_frame, text="🗑️ Clear Results", command=self.clear_ide_results,
+        tk.Button(control_frame, text="Clear Results", command=self.clear_ide_results,
                   bg=self.colors['danger'], fg='white', font=('Arial', 9, 'bold'),
                   padx=15, pady=5).pack(side='left', padx=5)
 
@@ -795,63 +1226,80 @@ class EnhancedACECalculator:
 
         if self.is_ide_mode:
             self.setup_ide_mode()
-            self.root.title("ACE Logic Calculator - Programming Mode")
+            self.root.title("ACE Logic Calculator - Programming Mode with APE")
         else:
             self.setup_calculator_mode()
-            self.root.title("ACE Logic Calculator")
+            self.root.title("ACE Logic Calculator with APE Integration")
 
-    def execute_ide_code(self):
-        """Execute code from IDE editor"""
+    def parse_ide_code(self):
+        """Parse code from IDE editor using APE"""
         content = self.code_editor.get_current_content()
         if not content.strip():
-            messagebox.showwarning("Warning", "No code to execute")
+            messagebox.showwarning("Warning", "No code to parse")
+            return
+
+        if not self.ape_client.available:
+            messagebox.showerror("Error", "APE server is not available. Please start the APE HTTP server.")
             return
 
         try:
-            statements = self.parser.parse_text(content)
-
             # Clear previous knowledge
-            self.inference_engine.clear()
+            self.knowledge_base.clear()
 
-            # Process statements
-            facts_count = 0
-            rules_count = 0
-            queries = []
+            # Parse statements line by line
+            statements = [line.strip() for line in content.split('\n')
+                          if line.strip() and not line.strip().startswith('#')]
 
-            for stmt in statements:
-                if stmt.statement_type == 'fact':
-                    self.inference_engine.add_fact(stmt.content)
-                    facts_count += 1
-                elif stmt.statement_type == 'rule':
-                    self.inference_engine.add_rule(stmt.content)
-                    rules_count += 1
-                elif stmt.statement_type == 'query':
-                    queries.append(stmt)
-
-            # Prepare results
             results = []
-            results.append(f"=== Execution Results ===")
-            results.append(f"Processed {facts_count} facts and {rules_count} rules")
-            results.append("")
+            results.append("=== APE Parsing Results ===")
+            results.append(f"Processing {len(statements)} statements\n")
 
-            # Answer queries
+            queries = []
+            facts_and_rules = []
+
+            for i, statement in enumerate(statements, 1):
+                result = self.knowledge_base.add_statement(statement)
+
+                if result.syntax_valid:
+                    results.append(f"✓ Statement {i}: {statement}")
+
+                    if statement.strip().endswith('?'):
+                        queries.append(statement)
+                    else:
+                        facts_and_rules.append(statement)
+
+                    if result.drs:
+                        results.append(f"  DRS: {result.drs[:100]}{'...' if len(result.drs) > 100 else ''}")
+                    if result.paraphrase:
+                        results.append(f"  Paraphrase: {result.paraphrase}")
+                    results.append("")
+                else:
+                    results.append(f"✗ Statement {i}: {statement}")
+                    results.append(f"  Errors: {', '.join(result.error_messages)}")
+                    results.append("")
+
+            # Process queries
             if queries:
                 results.append("Query Results:")
                 results.append("-" * 40)
                 for query in queries:
-                    answer = self.inference_engine.query(query.content)
-                    results.append(f"Q: {query.content}")
+                    answer = self.knowledge_base.query(query)
+                    results.append(f"Q: {query}")
                     results.append(f"A: {answer}")
                     results.append("")
 
-            # Show all current facts
-            all_facts = self.inference_engine.get_all_facts()
-            if all_facts:
-                results.append("Current Knowledge Base:")
+            # Show knowledge base summary
+            all_statements = self.knowledge_base.get_all_statements()
+            if all_statements:
+                results.append("Knowledge Base Summary:")
                 results.append("-" * 40)
-                for fact in all_facts:
-                    results.append(f"  • {fact}")
+                results.append(f"Facts: {len(self.knowledge_base.facts)}")
+                results.append(f"Rules: {len(self.knowledge_base.rules)}")
                 results.append("")
+                for stmt in all_statements[:10]:  # Show first 10
+                    results.append(f"  • {stmt}")
+                if len(all_statements) > 10:
+                    results.append(f"  ... and {len(all_statements) - 10} more")
 
             # Display results
             self.ide_results_display.config(state=tk.NORMAL)
@@ -861,10 +1309,10 @@ class EnhancedACECalculator:
 
             # Update status
             if hasattr(self, 'ide_status_var'):
-                self.ide_status_var.set(f"Executed {len(statements)} statements successfully")
+                self.ide_status_var.set(f"Parsed {len(statements)} statements with APE")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Error executing code: {str(e)}")
+            messagebox.showerror("Error", f"Error parsing with APE: {str(e)}")
             if hasattr(self, 'ide_status_var'):
                 self.ide_status_var.set(f"Error: {str(e)}")
 
@@ -891,7 +1339,7 @@ class EnhancedACECalculator:
         status_frame.pack(fill=tk.X, pady=(15, 0))
 
         self.ide_status_var = tk.StringVar()
-        status_text = "Programming Mode Ready - Prolog Available" if PROLOG_AVAILABLE else "IDE Ready - Prolog NOT Available"
+        status_text = "Programming Mode Ready - APE Available" if self.ape_client.available else "Programming Mode - APE Server Offline"
         self.ide_status_var.set(status_text)
 
         status_label = tk.Label(status_frame, textvariable=self.ide_status_var,
@@ -899,7 +1347,6 @@ class EnhancedACECalculator:
                                 font=('Arial', 9), anchor='w')
         status_label.pack(fill=tk.X, padx=10, pady=5)
 
-    # Original calculator mode methods
     def setup_calc_input_section(self, parent):
         """Setup main text input area for calculator mode"""
         input_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
@@ -909,7 +1356,7 @@ class EnhancedACECalculator:
         header_frame = tk.Frame(input_frame, bg=self.colors['card'])
         header_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
 
-        ttk.Label(header_frame, text="Statements", style='Subtitle.TLabel').pack(side=tk.LEFT)
+        ttk.Label(header_frame, text="ACE Statements", style='Subtitle.TLabel').pack(side=tk.LEFT)
 
         # File operations
         file_frame = tk.Frame(header_frame, bg=self.colors['card'])
@@ -936,17 +1383,40 @@ class EnhancedACECalculator:
         )
         self.text_input.pack(fill=tk.BOTH, expand=True)
 
-        # Add improved example text
-        example_text = """John is a person.
-Mary is a person.
-John likes chocolate.
-Mary likes books.
-X is happy if X likes chocolate.
-X is sad if X likes books.
-Is John happy?
-Is Mary sad?
+        # Add exciting ACE examples
+        example_text = """# Logical Reasoning Examples
+
+# Simple Facts
+Every man is a person.
+John is a man.
+Mary is a woman.
+Every woman is a person.
+
+# Properties and Relations  
+John likes Mary.
+Mary likes chocolate.
+Every person that likes chocolate is happy.
+
+# Complex Rules
+If a person X likes a person Y and Y likes chocolate then X is jealous.
+Every jealous person is unhappy.
+
+# Queries to test reasoning
+Is John a person?
+Is Mary happy?
 Who is happy?
-What does John like?"""
+Who is jealous?
+What does John like?
+
+# Advanced Example: Family Relations
+John is the father of Mary.
+Mary is the mother of Peter.
+If X is the father of Y then X is a parent of Y.
+If X is the mother of Y then X is a parent of Y.
+If X is a parent of Y and Y is a parent of Z then X is a grandparent of Z.
+
+Who is a parent of Mary?
+Who is a grandparent of Peter?"""
 
         self.text_input.insert(tk.END, example_text)
 
@@ -961,13 +1431,13 @@ What does John like?"""
 
         # Row 1: Statement types
         self.create_calc_button(grid_container, "FACT",
-                                lambda: self.insert_template("<SUBJECT> is <PROPERTY>.\n"),
+                                lambda: self.insert_template("<ENTITY> is <PROPERTY>.\n"),
                                 '#27ae60', 0, 0)
         self.create_calc_button(grid_container, "RULE",
-                                lambda: self.insert_template("<SUBJECT> is <CONCLUSION> if <CONDITION>.\n"),
+                                lambda: self.insert_template("If <CONDITION> then <CONCLUSION>.\n"),
                                 '#3498db', 0, 1)
         self.create_calc_button(grid_container, "QUERY",
-                                lambda: self.insert_template("Is <SUBJECT> <PROPERTY>?\n"),
+                                lambda: self.insert_template("Is <ENTITY> <PROPERTY>?\n"),
                                 '#f39c12', 0, 2)
 
         # Row 2: Question templates
@@ -975,15 +1445,15 @@ What does John like?"""
                                 lambda: self.insert_template("Who is <PROPERTY>?\n"),
                                 '#e67e22', 1, 0)
         self.create_calc_button(grid_container, "WHAT LIKES ...?",
-                                lambda: self.insert_template("What does <SUBJECT> like?\n"),
+                                lambda: self.insert_template("What does <ENTITY> like?\n"),
                                 '#e67e22', 1, 1)
-        self.create_calc_button(grid_container, "IS ... HAPPY?",
-                                lambda: self.insert_template("Is <SUBJECT> happy?\n"),
-                                '#e67e22', 1, 2)
+        self.create_calc_button(grid_container, "UNIVERSAL",
+                                lambda: self.insert_template("Every <CLASS> is <PROPERTY>.\n"),
+                                '#8e44ad', 1, 2)
 
         # Row 3: Actions
-        self.create_calc_button(grid_container, "EXECUTE ALL", self.execute_statements, '#27ae60', 0, 3, width=15)
-        self.create_calc_button(grid_container, "CLEAR", self.clear_all, '#e74c3c', 1, 3, width=15)
+        self.create_calc_button(grid_container, "PARSE WITH APE", self.parse_statements, '#27ae60', 0, 3, width=15)
+        self.create_calc_button(grid_container, "AI ASSIST", lambda: self.show_ai_assist(), '#e74c3c', 1, 3, width=15)
 
     def create_calc_button(self, parent, text, command, color, row, col, width=12):
         """Create a calculator-style button"""
@@ -1007,7 +1477,7 @@ What does John like?"""
         results_frame = tk.Frame(parent, bg=self.colors['card'], relief='raised', bd=2)
         results_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(results_frame, text="Results", style='Subtitle.TLabel').pack(pady=(15, 10))
+        ttk.Label(results_frame, text="APE Analysis & Results", style='Subtitle.TLabel').pack(pady=(15, 10))
 
         # Results text area
         self.results_display = scrolledtext.ScrolledText(
@@ -1026,7 +1496,7 @@ What does John like?"""
         status_frame.pack(fill=tk.X, pady=(15, 0))
 
         self.status_var = tk.StringVar()
-        status_text = "Ready - Prolog Available" if PROLOG_AVAILABLE else "Ready - Prolog NOT Available"
+        status_text = "Ready - APE Available" if self.ape_client.available else "Ready - APE Server Offline"
         self.status_var.set(status_text)
 
         status_label = tk.Label(status_frame, textvariable=self.status_var,
@@ -1052,53 +1522,99 @@ What does John like?"""
 
         self.status_var.set(f"Template inserted: {template.strip()}")
 
-    def execute_statements(self):
-        """Execute all statements in the text box (calculator mode)"""
+    def parse_statements(self):
+        """Parse all statements in the text box using APE"""
+        if not self.ape_client.available:
+            messagebox.showerror("Error",
+                                 "APE server is not available. Please start the APE HTTP server at http://localhost:8000")
+            return
+
         text_content = self.text_input.get(1.0, tk.END)
 
         try:
-            statements = self.parser.parse_text(text_content)
-
             # Clear previous knowledge
-            self.inference_engine.clear()
+            self.knowledge_base.clear()
 
-            # Process statements
-            facts_count = 0
-            rules_count = 0
-            queries = []
+            # Parse statements line by line
+            statements = [line.strip() for line in text_content.split('\n')
+                          if line.strip() and not line.strip().startswith('#')]
 
-            for stmt in statements:
-                if stmt.statement_type == 'fact':
-                    self.inference_engine.add_fact(stmt.content)
-                    facts_count += 1
-                elif stmt.statement_type == 'rule':
-                    self.inference_engine.add_rule(stmt.content)
-                    rules_count += 1
-                elif stmt.statement_type == 'query':
-                    queries.append(stmt)
+            if not statements:
+                messagebox.showwarning("Warning", "No statements to parse")
+                return
 
-            # Prepare results
             results = []
-            results.append(f"Processed {facts_count} facts and {rules_count} rules\n")
+            results.append("=== APE Parsing Results ===")
+            results.append(f"Processing {len(statements)} statements\n")
 
-            # Answer queries
+            queries = []
+            facts_and_rules = []
+
+            # Progress tracking
+            self.status_var.set("Parsing with APE...")
+            self.root.update()
+
+            for i, statement in enumerate(statements, 1):
+                self.status_var.set(f"Parsing statement {i}/{len(statements)}...")
+                self.root.update()
+
+                result = self.knowledge_base.add_statement(statement)
+
+                if result.syntax_valid:
+                    results.append(f"✓ Statement {i}: {statement}")
+
+                    if statement.strip().endswith('?'):
+                        queries.append(statement)
+                    else:
+                        facts_and_rules.append(statement)
+
+                    if result.drs:
+                        results.append(f"  DRS: {result.drs[:150]}{'...' if len(result.drs) > 150 else ''}")
+                    if result.paraphrase:
+                        results.append(f"  Paraphrase: {result.paraphrase}")
+                    results.append("")
+                else:
+                    results.append(f"✗ Statement {i}: {statement}")
+                    results.append(f"  Errors: {', '.join(result.error_messages)}")
+                    results.append("")
+
+            # Process queries
             if queries:
                 results.append("Query Results:")
-                results.append("-" * 40)
+                results.append("-" * 50)
+                self.status_var.set("Processing queries...")
+                self.root.update()
+
                 for query in queries:
-                    answer = self.inference_engine.query(query.content)
-                    results.append(f"Q: {query.content}")
+                    answer = self.knowledge_base.query(query)
+                    results.append(f"Q: {query}")
                     results.append(f"A: {answer}")
                     results.append("")
 
-            # Show all current facts
-            all_facts = self.inference_engine.get_all_facts()
-            if all_facts:
-                results.append("Current Knowledge Base:")
-                results.append("-" * 40)
-                for fact in all_facts:
-                    results.append(f"  • {fact}")
+            # Show knowledge base summary
+            all_statements = self.knowledge_base.get_all_statements()
+            if all_statements:
+                results.append("Knowledge Base Summary:")
+                results.append("-" * 50)
+                results.append(f"Total Facts: {len(self.knowledge_base.facts)}")
+                results.append(f"Total Rules: {len(self.knowledge_base.rules)}")
+                results.append(f"Total Queries: {len(queries)}")
                 results.append("")
+
+                if self.knowledge_base.facts:
+                    results.append("Sample Facts:")
+                    for fact in self.knowledge_base.facts[:5]:
+                        results.append(f"  • {fact}")
+                    if len(self.knowledge_base.facts) > 5:
+                        results.append(f"  ... and {len(self.knowledge_base.facts) - 5} more facts")
+                    results.append("")
+
+                if self.knowledge_base.rules:
+                    results.append("Sample Rules:")
+                    for rule in self.knowledge_base.rules[:3]:
+                        results.append(f"  • {rule}")
+                    if len(self.knowledge_base.rules) > 3:
+                        results.append(f"  ... and {len(self.knowledge_base.rules) - 3} more rules")
 
             # Display results
             self.results_display.config(state=tk.NORMAL)
@@ -1106,27 +1622,60 @@ What does John like?"""
             self.results_display.insert(tk.END, "\n".join(results))
             self.results_display.config(state=tk.DISABLED)
 
-            self.status_var.set(f"Executed {len(statements)} statements successfully")
+            self.status_var.set(f"Parsed {len(statements)} statements successfully with APE")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Error executing statements: {str(e)}")
+            messagebox.showerror("Error", f"Error parsing with APE: {str(e)}")
             self.status_var.set(f"Error: {str(e)}")
 
-    def clear_all(self):
-        """Clear everything (calculator mode)"""
-        self.inference_engine.clear()
-        self.results_display.config(state=tk.NORMAL)
-        self.results_display.delete(1.0, tk.END)
-        self.results_display.config(state=tk.DISABLED)
-        self.status_var.set("All data cleared")
+    def show_ai_assist(self):
+        """Show AI assist dialog"""
+        user_input = simpledialog.askstring(
+            "AI Assistant",
+            "Enter natural language statement:\n\n"
+            "Examples:\n"
+            "• 'Every person who likes chocolate is happy'\n"
+            "• 'John is a tall person who likes Mary'\n"
+            "• 'If someone is a parent then they are responsible'\n"
+            "• 'Who is happy?'"
+        )
 
-    def clear_text(self):
-        """Clear only the text input"""
-        self.text_input.delete(1.0, tk.END)
-        self.status_var.set("Text cleared")
+        if user_input and user_input.strip():
+            # Show progress
+            self.status_var.set("AI translating...")
+            self.root.update()
+
+            def do_translation():
+                try:
+                    ace_result = self.ai_translator.translate(user_input.strip())
+                    if ace_result:
+                        # Add to text area
+                        self.root.after(0, lambda: self.add_translated_text(ace_result))
+                    else:
+                        self.root.after(0, lambda: self.status_var.set("Translation failed - try rephrasing"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.status_var.set(f"Error: {str(e)}"))
+
+            # Run in thread to avoid blocking
+            threading.Thread(target=do_translation, daemon=True).start()
+
+    def add_translated_text(self, ace_text):
+        """Add translated ACE text to the main text area"""
+        # Insert at current cursor position
+        current_pos = self.text_input.index(tk.INSERT)
+
+        # Add newline if not at start of line
+        if self.text_input.get(f"{current_pos} linestart", current_pos).strip():
+            self.text_input.insert(current_pos, "\n")
+
+        # Insert the translated text
+        self.text_input.insert(tk.INSERT, ace_text + "\n")
+
+        # Update status
+        self.status_var.set(f"Added: {ace_text}")
 
     def load_csv(self):
-        """Load CSV file and convert to ACE facts"""
+        """Load CSV file and convert to ACE facts with LLM-powered mapping"""
         file_path = filedialog.askopenfilename(
             title="Select CSV file",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
@@ -1135,19 +1684,38 @@ What does John like?"""
         if file_path:
             try:
                 headers, data = CSVProcessor.load_csv(file_path)
-                facts = CSVProcessor.convert_to_ace_facts(headers, data)
 
-                # Add facts to text area
-                current_text = self.text_input.get(1.0, tk.END)
-                if current_text.strip():
-                    self.text_input.insert(tk.END, "\n\n# CSV Facts\n")
+                if not data:
+                    messagebox.showwarning("Warning", "CSV file is empty")
+                    return
+
+                # Show mapping dialog with sample row
+                sample_row = [data[0].get(header, '') for header in headers]
+
+                # Create and show mapping dialog
+                mapping_dialog = CSVMappingDialog(self.root, headers, sample_row, self.ai_translator)
+                self.root.wait_window(mapping_dialog.dialog)
+
+                # Check if user applied mapping
+                if mapping_dialog.result:
+                    # Convert using template
+                    facts = CSVProcessor.convert_to_ace_facts_with_template(
+                        headers, data, mapping_dialog.result
+                    )
+
+                    # Add facts to text area
+                    current_text = self.text_input.get(1.0, tk.END)
+                    if current_text.strip():
+                        self.text_input.insert(tk.END, "\n\n# CSV Facts (Template Mapping)\n")
+                    else:
+                        self.text_input.insert(tk.END, "# CSV Facts (Template Mapping)\n")
+
+                    for fact in facts:
+                        self.text_input.insert(tk.END, fact + "\n")
+
+                    self.status_var.set(f"Loaded {len(facts)} facts from CSV with template mapping")
                 else:
-                    self.text_input.insert(tk.END, "# CSV Facts\n")
-
-                for fact in facts:
-                    self.text_input.insert(tk.END, fact + "\n")
-
-                self.status_var.set(f"Loaded {len(facts)} facts from CSV")
+                    self.status_var.set("CSV import cancelled")
 
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading CSV: {str(e)}")
@@ -1195,15 +1763,20 @@ def main():
 
     app = EnhancedACECalculator(root)
 
-    # Show startup message if Prolog is not available
-    if not PROLOG_AVAILABLE:
-        root.after(1000, lambda: messagebox.showinfo(
-            "Setup Required",
-            "For full functionality, please install:\n\n"
-            "1. SWI-Prolog (https://www.swi-prolog.org/)\n"
-            "2. janus_swi: pip install janus_swi"
-        ))
+    # Show startup message about APE server
+    def show_startup_info():
+        if not app.ape_client.available:
+            messagebox.showinfo(
+                "APE Server Setup Required",
+                "The APE (Attempto Parsing Engine) server is not running.\n\n"
+                "To enable full functionality:\n"
+                "1. Download and compile APE from http://attempto.ifi.uzh.ch\n"
+                "2. Start the HTTP server: ./ape.exe -httpserver\n"
+                "3. The server will run at http://localhost:8000\n\n"
+                "For AI translation assistance, also ensure Ollama is running."
+            )
 
+    root.after(1000, show_startup_info)
     root.mainloop()
 
 
